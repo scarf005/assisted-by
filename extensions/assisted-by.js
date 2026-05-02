@@ -1,3 +1,5 @@
+// @ts-check
+
 import { fileURLToPath } from "node:url"
 
 import {
@@ -13,6 +15,13 @@ import {
   normalizeTools,
 } from "../lib/assisted-by.js"
 
+/**
+ * @typedef {import("@mariozechner/pi-coding-agent").ExtensionAPI} ExtensionAPI
+ * @typedef {import("@mariozechner/pi-coding-agent").ExtensionContext} ExtensionContext
+ * @typedef {{ command: string, detectedTools: Set<string> }} CollectToolsOptions
+ * @typedef {{ command: string, ctx: ExtensionContext, detectedTools: Set<string> }} BuildWrappedCommandOptions
+ */
+
 const hookPath = fileURLToPath(
   new URL("../bin/git-commit-hook.sh", import.meta.url),
 )
@@ -22,12 +31,14 @@ const extraTools = normalizeTools({
   tools: process.env.PI_ASSISTED_BY_EXTRA_TOOLS?.split(/[\s,]+/) ?? [],
 })
 
+/** @type {(options: CollectToolsOptions) => void} */
 const collectTools = ({ command, detectedTools }) => {
   for (const tool of detectSpecializedTools({ command })) {
     detectedTools.add(tool)
   }
 }
 
+/** @type {(options: BuildWrappedCommandOptions) => string} */
 const buildWrappedCommand = ({ command, ctx, detectedTools }) => {
   if (!hasGitCommitInvocation({ command })) return ""
   if (!ctx.model?.id) return ""
@@ -43,7 +54,9 @@ const buildWrappedCommand = ({ command, ctx, detectedTools }) => {
   return `${createHookBootstrap({ hookPath, ...trailers })}\n${command}`
 }
 
-export default (pi) => {
+/** @type {(pi: ExtensionAPI) => void} */
+const assistedByExtension = (pi) => {
+  /** @type {Set<string>} */
   const detectedTools = new Set(extraTools)
 
   pi.on("tool_call", async (event, ctx) => {
@@ -76,3 +89,5 @@ export default (pi) => {
     }
   })
 }
+
+export default assistedByExtension

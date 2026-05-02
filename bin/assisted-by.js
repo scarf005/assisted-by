@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+// @ts-check
 
 import { buildTrailers } from "../lib/assisted-by.js"
 

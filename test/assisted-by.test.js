@@ -1,3 +1,5 @@
+// @ts-check
+
 import test from "node:test"
 import assert from "node:assert/strict"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
@@ -18,6 +20,7 @@ const hookPath = fileURLToPath(
   new URL("../bin/git-commit-hook.sh", import.meta.url),
 )
 
+/** @type {(options: { command: string, cwd: string }) => string} */
 const run = ({ command, cwd }) => {
   const result = spawnSync("bash", ["-lc", command], { cwd, encoding: "utf8" })
   if (result.status !== 0) {

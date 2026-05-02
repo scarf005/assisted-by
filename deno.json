@@ -1,0 +1,4 @@
+{
+  "nodeModulesDir": "auto",
+  "fmt": { "semiColons": false, "proseWrap": "never" }
+}

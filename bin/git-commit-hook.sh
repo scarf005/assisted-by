@@ -3,14 +3,14 @@ git() {
     shift
 
     if [ -n "${PI_CO_AUTHORED_BY_TRAILER:-}" ]; then
-      command git -c trailer.ifexists=doNothing -c trailer.ifmissing=add commit \
+      command git -c trailer.ifexists=addIfDifferent -c trailer.ifmissing=add commit \
         --trailer "$PI_ASSISTED_BY_TRAILER" \
         --trailer "$PI_CO_AUTHORED_BY_TRAILER" \
         "$@"
       return $?
     fi
 
-    command git -c trailer.ifexists=doNothing -c trailer.ifmissing=add commit \
+    command git -c trailer.ifexists=addIfDifferent -c trailer.ifmissing=add commit \
       --trailer "$PI_ASSISTED_BY_TRAILER" \
       "$@"
     return $?

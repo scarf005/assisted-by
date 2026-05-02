@@ -67,7 +67,7 @@ test("hasGitCommitInvocation matches git commit and skips other git commands", (
   assert.equal(hasGitCommitInvocation({ command: "git status" }), false)
 })
 
-test("hook bootstrap appends trailers mechanically and avoids duplicates on amend", () => {
+test("hook bootstrap appends trailers, preserves distinct co-authors, and avoids duplicates on amend", () => {
   const repo = mkdtempSync(repoPrefix)
 
   try {
@@ -91,10 +91,27 @@ test("hook bootstrap appends trailers mechanically and avoids duplicates on amen
         "Co-authored-by: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>",
     })
 
-    run({ command: `${bootstrap}\ngit commit -m update`, cwd: repo })
+    run({
+      command:
+        `${bootstrap}\ngit commit -m update -m "Co-authored-by: Claude Sonnet 4.5 <noreply@anthropic.com>"`,
+      cwd: repo,
+    })
     const committed = run({ command: "git log -1 --pretty=%B", cwd: repo })
-    assert.match(committed, /Assisted-by: pi:gpt-5.4 sparse/)
-    assert.match(committed, /Co-authored-by: chatgpt-codex-connector\[bot\]/)
+    const committedLines = committed.split("\n")
+    const assistedByIndex = committedLines.indexOf(
+      "Assisted-by: pi:gpt-5.4 sparse",
+    )
+    const botCoAuthorIndex = committedLines.indexOf(
+      "Co-authored-by: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>",
+    )
+    assert.notEqual(assistedByIndex, -1)
+    assert.notEqual(botCoAuthorIndex, -1)
+    assert.match(
+      committed,
+      /Co-authored-by: Claude Sonnet 4\.5 <noreply@anthropic\.com>/,
+    )
+    assert.equal((committed.match(/^Co-authored-by:/gm) ?? []).length, 2)
+    assert.equal(botCoAuthorIndex, assistedByIndex + 1)
 
     writeFileSync(join(repo, "a.txt"), "one\ntwo\nthree\n")
     run({ command: "git add a.txt", cwd: repo })
@@ -102,7 +119,7 @@ test("hook bootstrap appends trailers mechanically and avoids duplicates on amen
 
     const amended = run({ command: "git log -1 --pretty=%B", cwd: repo })
     assert.equal((amended.match(/Assisted-by:/g) ?? []).length, 1)
-    assert.equal((amended.match(/Co-authored-by:/g) ?? []).length, 1)
+    assert.equal((amended.match(/Co-authored-by:/g) ?? []).length, 2)
   } finally {
     rmSync(repo, { recursive: true, force: true })
   }

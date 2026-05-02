@@ -1,10 +1,6 @@
-// src/pi/assisted-by.ts
+// src/opencode/assisted-by.ts
 import { fileURLToPath } from "node:url"
 import process from "node:process"
-import {
-  createLocalBashOperations,
-  isToolCallEventType,
-} from "@mariozechner/pi-coding-agent"
 
 // src/core/assisted-by.ts
 var KNOWN_SPECIALIZED_TOOLS = [
@@ -135,15 +131,21 @@ var createHookBootstrap = (
   return `${lines.join("\n")}`
 }
 
-// src/pi/assisted-by.ts
+// src/opencode/assisted-by.ts
 var hookPath = fileURLToPath(
   new URL("../bin/git-commit-hook.sh", import.meta.url),
 )
-var agentName = process.env.PI_ASSISTED_BY_AGENT?.trim() || "pi"
+var agentName = process.env.OPENCODE_ASSISTED_BY_AGENT?.trim() || "opencode"
 var extraTools = normalizeTools({
-  tools: process.env.PI_ASSISTED_BY_EXTRA_TOOLS?.split(/[\s,]+/) ?? [],
+  tools: process.env.OPENCODE_ASSISTED_BY_EXTRA_TOOLS?.split(/[\s,]+/) ?? [],
 })
-var collectTools = ({ command, detectedTools }) => {
+var modelId = (model) => {
+  const id = `${model?.id ?? ""}`.trim()
+  if (id) return id
+  return `${model?.modelID ?? ""}`.trim()
+}
+var isShellTool = (tool) => tool === "bash" || tool === "shell"
+var collectTools = (command, detectedTools) => {
   for (
     const tool of detectSpecializedTools({
       command,
@@ -152,16 +154,16 @@ var collectTools = ({ command, detectedTools }) => {
     detectedTools.add(tool)
   }
 }
-var buildWrappedCommand = ({ command, ctx, detectedTools }) => {
+var buildWrappedCommand = ({ command, model, detectedTools }) => {
   if (
     !hasGitCommitInvocation({
       command,
     })
   ) return ""
-  if (!ctx.model?.id) return ""
+  if (!model) return ""
   const trailers = buildTrailers({
     agent: agentName,
-    model: ctx.model.id,
+    model,
     tools: [
       ...detectedTools,
       ...extraTools,
@@ -176,39 +178,30 @@ var buildWrappedCommand = ({ command, ctx, detectedTools }) => {
   }
 ${command}`
 }
-var assistedByExtension = (pi) => {
+var assistedByOpenCodePlugin = (_input, _options) => {
   const detectedTools = new Set(extraTools)
-  pi.on("tool_call", (event, ctx) => {
-    if (!isToolCallEventType("bash", event)) return
-    collectTools({
-      command: event.input.command,
-      detectedTools,
-    })
-    const wrapped = buildWrappedCommand({
-      command: event.input.command,
-      ctx,
-      detectedTools,
-    })
-    if (wrapped) event.input.command = wrapped
-  })
-  pi.on("user_bash", (event, ctx) => {
-    collectTools({
-      command: event.command,
-      detectedTools,
-    })
-    const wrapped = buildWrappedCommand({
-      command: event.command,
-      ctx,
-      detectedTools,
-    })
-    if (!wrapped) return
-    const local = createLocalBashOperations()
-    return {
-      operations: {
-        exec: (_command, cwd, options) => local.exec(wrapped, cwd, options),
-      },
-    }
-  })
+  const modelBySession = /* @__PURE__ */ new Map()
+  return {
+    "chat.params"(input) {
+      const model = modelId(input.model)
+      if (model) modelBySession.set(input.sessionID, model)
+    },
+    "chat.message"(input) {
+      const model = modelId(input.model)
+      if (model) modelBySession.set(input.sessionID, model)
+    },
+    "tool.execute.before"(input, output) {
+      if (!isShellTool(input.tool)) return
+      const command = `${output.args.command ?? ""}`
+      collectTools(command, detectedTools)
+      const wrapped = buildWrappedCommand({
+        command,
+        model: modelBySession.get(input.sessionID) ?? "",
+        detectedTools,
+      })
+      if (wrapped) output.args.command = wrapped
+    },
+  }
 }
-var assisted_by_default = assistedByExtension
+var assisted_by_default = assistedByOpenCodePlugin
 export { assisted_by_default as default }

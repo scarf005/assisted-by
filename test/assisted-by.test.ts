@@ -1,11 +1,7 @@
-// @ts-check
-
-import test from "node:test"
-import assert from "node:assert/strict"
+import { spawnSync } from "node:child_process"
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { spawnSync } from "node:child_process"
 import { fileURLToPath } from "node:url"
 
 import {
@@ -13,15 +9,48 @@ import {
   createHookBootstrap,
   detectSpecializedTools,
   hasGitCommitInvocation,
-} from "../lib/assisted-by.js"
+  resolveCoAuthor,
+} from "../src/core/assisted-by.ts"
 
-const repoPrefix = join(tmpdir(), "pi-assisted-by-")
+const repoPrefix = join(tmpdir(), "assisted-by-")
 const hookPath = fileURLToPath(
   new URL("../bin/git-commit-hook.sh", import.meta.url),
 )
 
-/** @type {(options: { command: string, cwd: string }) => string} */
-const run = ({ command, cwd }) => {
+/** @type {(actual: unknown, expected: unknown) => void} */
+const assertEquals = (actual: unknown, expected: unknown): void => {
+  if (!Object.is(actual, expected)) {
+    throw new Error(
+      `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
+    )
+  }
+}
+
+/** @type {(actual: unknown, expected: unknown) => void} */
+const assertDeepEquals = (actual: unknown, expected: unknown): void => {
+  const actualJson = JSON.stringify(actual)
+  const expectedJson = JSON.stringify(expected)
+  if (actualJson !== expectedJson) {
+    throw new Error(`expected ${expectedJson}, got ${actualJson}`)
+  }
+}
+
+/** @type {(actual: string, pattern: RegExp) => void} */
+const assertMatch = (actual: string, pattern: RegExp): void => {
+  if (!pattern.test(actual)) {
+    throw new Error(`expected ${actual} to match ${pattern}`)
+  }
+}
+
+/** @type {(actual: unknown, expected: unknown) => void} */
+const assertNotEquals = (actual: unknown, expected: unknown): void => {
+  if (Object.is(actual, expected)) {
+    throw new Error(`expected values to differ: ${JSON.stringify(actual)}`)
+  }
+}
+
+/** @type {(options: { command: string; cwd: string }) => string} */
+const run = ({ command, cwd }: { command: string; cwd: string }): string => {
   const result = spawnSync("bash", ["-lc", command], { cwd, encoding: "utf8" })
   if (result.status !== 0) {
     throw new Error(
@@ -31,30 +60,41 @@ const run = ({ command, cwd }) => {
   return result.stdout.trimEnd()
 }
 
-test("buildTrailers follows kernel assisted-by format and adds mapped co-author", () => {
+Deno.test("buildTrailers follows kernel assisted-by format and adds mapped co-author", () => {
   const trailers = buildTrailers({
     agent: "pi",
     model: "claude-sonnet-4-5",
     tools: ["sparse", "smatch"],
   })
-  assert.equal(
+  assertEquals(
     trailers.assistedBy,
     "Assisted-by: pi:claude-sonnet-4-5 sparse smatch",
   )
-  assert.equal(
+  assertEquals(
     trailers.coAuthoredBy,
     "Co-authored-by: Claude Sonnet 4.5 <noreply@anthropic.com>",
   )
 })
 
-test("detectSpecializedTools only records supported analysis tools", () => {
-  assert.deepEqual(
+Deno.test("resolveCoAuthor handles provider-prefixed model ids", () => {
+  assertEquals(
+    resolveCoAuthor({ model: "anthropic/claude-sonnet-4-5" }),
+    "Claude Sonnet 4.5 <noreply@anthropic.com>",
+  )
+  assertEquals(
+    resolveCoAuthor({ model: "openai/gpt-5.4" }),
+    "chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>",
+  )
+})
+
+Deno.test("detectSpecializedTools only records supported analysis tools", () => {
+  assertDeepEquals(
     detectSpecializedTools({
       command: "make C=2 && sparse foo.c && git status",
     }),
     ["sparse"],
   )
-  assert.deepEqual(
+  assertDeepEquals(
     detectSpecializedTools({
       command: "spatch --sp-file foo.cocci && clang-tidy a.cc",
     }),
@@ -62,12 +102,12 @@ test("detectSpecializedTools only records supported analysis tools", () => {
   )
 })
 
-test("hasGitCommitInvocation matches git commit and skips other git commands", () => {
-  assert.equal(hasGitCommitInvocation({ command: "git commit -m test" }), true)
-  assert.equal(hasGitCommitInvocation({ command: "git status" }), false)
+Deno.test("hasGitCommitInvocation matches git commit and skips other git commands", () => {
+  assertEquals(hasGitCommitInvocation({ command: "git commit -m test" }), true)
+  assertEquals(hasGitCommitInvocation({ command: "git status" }), false)
 })
 
-test("hook bootstrap appends trailers, preserves distinct co-authors, and avoids duplicates on amend", () => {
+Deno.test("hook bootstrap appends trailers, preserves distinct co-authors, and avoids duplicates on amend", () => {
   const repo = mkdtempSync(repoPrefix)
 
   try {
@@ -104,22 +144,22 @@ test("hook bootstrap appends trailers, preserves distinct co-authors, and avoids
     const botCoAuthorIndex = committedLines.indexOf(
       "Co-authored-by: chatgpt-codex-connector[bot] <199175422+chatgpt-codex-connector[bot]@users.noreply.github.com>",
     )
-    assert.notEqual(assistedByIndex, -1)
-    assert.notEqual(botCoAuthorIndex, -1)
-    assert.match(
+    assertNotEquals(assistedByIndex, -1)
+    assertNotEquals(botCoAuthorIndex, -1)
+    assertMatch(
       committed,
       /Co-authored-by: Claude Sonnet 4\.5 <noreply@anthropic\.com>/,
     )
-    assert.equal((committed.match(/^Co-authored-by:/gm) ?? []).length, 2)
-    assert.equal(botCoAuthorIndex, assistedByIndex + 1)
+    assertEquals((committed.match(/^Co-authored-by:/gm) ?? []).length, 2)
+    assertEquals(botCoAuthorIndex, assistedByIndex + 1)
 
     writeFileSync(join(repo, "a.txt"), "one\ntwo\nthree\n")
     run({ command: "git add a.txt", cwd: repo })
     run({ command: `${bootstrap}\ngit commit --amend --no-edit`, cwd: repo })
 
     const amended = run({ command: "git log -1 --pretty=%B", cwd: repo })
-    assert.equal((amended.match(/Assisted-by:/g) ?? []).length, 1)
-    assert.equal((amended.match(/Co-authored-by:/g) ?? []).length, 2)
+    assertEquals((amended.match(/Assisted-by:/g) ?? []).length, 1)
+    assertEquals((amended.match(/Co-authored-by:/g) ?? []).length, 2)
   } finally {
     rmSync(repo, { recursive: true, force: true })
   }

@@ -1,0 +1,20 @@
+{
+  "name": "@scarf/pi-assisted-by",
+  "version": "0.1.0",
+  "description": "Pi package that mechanically appends Assisted-by and Co-authored-by trailers to AI-invoked git commits.",
+  "type": "module",
+  "keywords": ["pi-package"],
+  "files": ["bin", "extensions", "lib", "test", "README.md", "LICENSE"],
+  "bin": {
+    "assisted-by": "./bin/assisted-by.js"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": ["./extensions"]
+  }
+}

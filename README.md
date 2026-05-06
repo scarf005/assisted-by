@@ -101,6 +101,17 @@ deno task test
 deno task publish:dry-run
 ```
 
+## Release
+
+Push a semver tag to publish to JSR through GitHub Actions:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+The workflow uses GitHub Actions OIDC, so link the JSR package to this GitHub repository first. It validates, dry-runs, then publishes with the version from the tag.
+
 ## Notes
 
 - this intercepts `git commit` mechanically; the model does not format or decide the trailers

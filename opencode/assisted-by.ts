@@ -7,7 +7,7 @@ import {
   detectSpecializedTools,
   hasGitCommitInvocation,
   normalizeTools,
-} from "../core/assisted-by.ts"
+} from "../src/core/assisted-by.ts"
 
 type PluginInput = Record<string, unknown>
 type PluginOptions = Record<string, unknown>

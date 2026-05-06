@@ -22,10 +22,11 @@ Basic tools are not listed. Specialized tools are collected mechanically from ba
 
 ## Install for Pi
 
-From npm:
+From JSR's npm compatibility registry:
 
 ```bash
-pi install npm:@scarf/pi-assisted-by
+npm config set @jsr:registry https://npm.jsr.io
+pi install npm:@jsr/scarf__pi-assisted-by
 ```
 
 From the current directory:
@@ -41,11 +42,17 @@ Optional environment variables:
 
 ## Install for OpenCode
 
-Add the npm package to `opencode.jsonc`:
+Add the JSR package through the JSR npm helper in your OpenCode config directory:
+
+```bash
+deno run -A npm:jsr add @scarf/pi-assisted-by --npm
+```
+
+Then add the server export to `opencode.jsonc`:
 
 ```jsonc
 {
-  "plugin": ["@scarf/pi-assisted-by"]
+  "plugin": ["@scarf/pi-assisted-by/server"]
 }
 ```
 
@@ -53,7 +60,7 @@ For local development:
 
 ```jsonc
 {
-  "plugin": ["./opencode/assisted-by.js"]
+  "plugin": ["./opencode/assisted-by.ts"]
 }
 ```
 
@@ -64,31 +71,39 @@ Optional environment variables:
 
 ## CLI
 
+Run directly from JSR:
+
 ```bash
-assisted-by <model-name> <agent-name> [tool ...]
+deno run jsr:@scarf/pi-assisted-by/cli <model-name> <agent-name> [tool ...]
 ```
 
 Example:
 
 ```bash
-assisted-by gpt-5.4 opencode sparse
+deno run jsr:@scarf/pi-assisted-by/cli gpt-5.4 opencode sparse
+```
+
+Install as a Deno executable:
+
+```bash
+deno install --global --name assisted-by jsr:@scarf/pi-assisted-by/cli
 ```
 
 ## Development
 
-Source lives in `src/` and generated package entrypoints are emitted to `bin/`, `extensions/`, `lib/`, and `opencode/`.
+Source and package metadata are Deno/JSR-only. Package entrypoints are TypeScript files declared in `deno.json`.
 
 ```bash
 deno task fmt
 deno task check
 deno task lint
 deno task test
-deno task build
+deno task publish:dry-run
 ```
 
 ## Notes
 
 - this intercepts `git commit` mechanically; the model does not format or decide the trailers
 - it does not rewrite commits created by commands other than `git commit`
-- npm package export `./server` is the OpenCode plugin entrypoint
-- Pi loads `./extensions` through the `pi` manifest
+- JSR's npm compatibility package is `@jsr/scarf__pi-assisted-by`, not an npmjs `@scarf/pi-assisted-by` publish
+- Pi loads `./extensions` by convention

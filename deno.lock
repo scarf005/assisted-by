@@ -1,7 +1,7 @@
 {
   "version": "5",
   "specifiers": {
-    "npm:@mariozechner/pi-coding-agent@*": "0.72.0_zod@4.4.2"
+    "npm:@mariozechner/pi-coding-agent@0.72": "0.72.0_zod@4.4.2"
   },
   "npm": {
     "@anthropic-ai/sdk@0.91.1_zod@4.4.2": {
@@ -1807,7 +1807,7 @@
   },
   "workspace": {
     "dependencies": [
-      "npm:@mariozechner/pi-coding-agent@*"
+      "npm:@mariozechner/pi-coding-agent@0.72"
     ]
   }
 }

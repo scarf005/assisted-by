@@ -1,7 +1,6 @@
 import { fileURLToPath } from "node:url"
 import process from "node:process"
 
-// @ts-ignore Pi provides this peer dependency at runtime.
 import {
   createLocalBashOperations,
   isToolCallEventType,
@@ -13,7 +12,7 @@ import {
   detectSpecializedTools,
   hasGitCommitInvocation,
   normalizeTools,
-} from "../core/assisted-by.ts"
+} from "../src/core/assisted-by.ts"
 
 type ExtensionContext = { model?: { id?: string } }
 type ToolCallEvent = { input: { command: string } }

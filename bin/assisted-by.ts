@@ -1,8 +1,8 @@
-#!/usr/bin/env node
+#!/usr/bin/env -S deno run
 
 import process from "node:process"
 
-import { buildTrailers } from "../core/assisted-by.ts"
+import { buildTrailers } from "../src/core/assisted-by.ts"
 
 const [, , modelArg = "", agentArg = "", ...tools] = process.argv
 

@@ -1,15 +1,37 @@
 {
+  "name": "@scarf/pi-assisted-by",
+  "version": "0.1.0",
+  "description": "Mechanical Assisted-by and Co-authored-by trailers for Pi and OpenCode git commits.",
+  "license": "AGPL-3.0-only",
+  "keywords": ["pi-package", "opencode-plugin"],
   "nodeModulesDir": "auto",
+  "exports": {
+    ".": "./src/core/assisted-by.ts",
+    "./cli": "./bin/assisted-by.ts",
+    "./pi": "./extensions/assisted-by.ts",
+    "./server": "./opencode/assisted-by.ts"
+  },
   "imports": {
-    "@mariozechner/pi-coding-agent": "npm:@mariozechner/pi-coding-agent"
+    "@mariozechner/pi-coding-agent": "npm:@mariozechner/pi-coding-agent@^0.72.0"
+  },
+  "publish": {
+    "include": [
+      "bin/",
+      "extensions/",
+      "opencode/",
+      "src/",
+      "LICENSE",
+      "README.md",
+      "deno.json"
+    ]
   },
   "fmt": { "semiColons": false, "proseWrap": "never" },
-  "lint": { "exclude": ["bin/", "extensions/", "lib/", "opencode/"] },
   "tasks": {
     "fmt": "deno fmt --no-semicolons --prose-wrap=never",
-    "build": "deno run --allow-run --allow-read --allow-write --allow-env scripts/build.ts",
-    "check": "deno check src/**/*.ts test/**/*.ts scripts/*.ts",
+    "check": "deno check bin/*.ts extensions/*.ts opencode/*.ts src/**/*.ts test/**/*.ts",
     "lint": "deno lint",
-    "test": "deno test --allow-run=bash --allow-read --allow-write --allow-env"
+    "test": "deno test --allow-run=bash --allow-read --allow-write --allow-env",
+    "publish:dry-run": "deno publish --dry-run --allow-dirty",
+    "publish": "deno publish"
   }
 }

@@ -1,4 +1,4 @@
-# @scarf/pi-assisted-by
+# @scarf/assisted-by
 
 Mechanical kernel-style AI attribution trailers for Pi and OpenCode `git commit` calls.
 
@@ -26,7 +26,7 @@ From JSR's npm compatibility registry:
 
 ```bash
 npm config set @jsr:registry https://npm.jsr.io
-pi install npm:@jsr/scarf__pi-assisted-by
+pi install npm:@jsr/scarf__assisted-by
 ```
 
 From the current directory:
@@ -45,14 +45,14 @@ Optional environment variables:
 Add the JSR package through the JSR npm helper in your OpenCode config directory:
 
 ```bash
-deno run -A npm:jsr add @scarf/pi-assisted-by --npm
+deno run -A npm:jsr add @scarf/assisted-by --npm
 ```
 
 Then add the server export to `opencode.jsonc`:
 
 ```jsonc
 {
-  "plugin": ["@scarf/pi-assisted-by/server"]
+  "plugin": ["@scarf/assisted-by/server"]
 }
 ```
 
@@ -74,19 +74,19 @@ Optional environment variables:
 Run directly from JSR:
 
 ```bash
-deno run jsr:@scarf/pi-assisted-by/cli <model-name> <agent-name> [tool ...]
+deno run jsr:@scarf/assisted-by/cli <model-name> <agent-name> [tool ...]
 ```
 
 Example:
 
 ```bash
-deno run jsr:@scarf/pi-assisted-by/cli gpt-5.4 opencode sparse
+deno run jsr:@scarf/assisted-by/cli gpt-5.4 opencode sparse
 ```
 
 Install as a Deno executable:
 
 ```bash
-deno install --global --name assisted-by jsr:@scarf/pi-assisted-by/cli
+deno install --global --name assisted-by jsr:@scarf/assisted-by/cli
 ```
 
 ## Development
@@ -116,5 +116,5 @@ The workflow uses GitHub Actions OIDC, so link the JSR package to this GitHub re
 
 - this intercepts `git commit` mechanically; the model does not format or decide the trailers
 - it does not rewrite commits created by commands other than `git commit`
-- JSR's npm compatibility package is `@jsr/scarf__pi-assisted-by`, not an npmjs `@scarf/pi-assisted-by` publish
+- JSR's npm compatibility package is `@jsr/scarf__assisted-by`, not an npmjs `@scarf/assisted-by` publish
 - Pi loads `./extensions` by convention

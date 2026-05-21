@@ -8,11 +8,20 @@ export type BuildTrailersOptions = {
   tools?: Iterable<unknown>
 }
 export type Trailers = { assistedBy: string; coAuthoredBy: string }
+export type PrTrailerOptions = {
+  model?: unknown
+  thinking?: unknown
+  harness?: unknown
+}
 export type CommandOptions = { command?: unknown }
 export type HookBootstrapOptions = {
   hookPath?: string
   assistedBy?: string
   coAuthoredBy?: string
+}
+export type GhPrCreateHookBootstrapOptions = {
+  hookPath?: string
+  trailer?: string
 }
 
 const KNOWN_SPECIALIZED_TOOLS: SpecializedToolRule[] = [
@@ -159,6 +168,31 @@ export const hasGitCommitInvocation = (
   { command }: CommandOptions = {},
 ): boolean => /(^|[\n;&|()\s])git\s+commit(\s|$)/m.test(`${command ?? ""}`)
 
+/** @type {(options?: CommandOptions) => boolean} */
+export const hasGhPrCreateInvocation = (
+  { command }: CommandOptions = {},
+): boolean =>
+  /(^|[\n;&|()\s])gh(?:\s+[^\n;&|()]+)*\s+pr\s+(create|new)(\s|$)/m
+    .test(`${command ?? ""}`)
+
+/**
+ * Build a GitHub PR body attribution trailer.
+ *
+ * @type {(options?: PrTrailerOptions) => string}
+ */
+export const buildPrTrailer = (
+  { model, thinking, harness = "pi" }: PrTrailerOptions = {},
+): string => {
+  const modelValue = trimValue(model)
+  const thinkingValue = trimValue(thinking)
+  const harnessValue = trimValue(harness)
+  if (!modelValue || !harnessValue) return ""
+
+  return `<sub>PR opened by ${modelValue}${
+    thinkingValue ? ` ${thinkingValue}` : ""
+  } on ${harnessValue}</sub>`
+}
+
 /**
  * Create shell code that installs the git commit wrapper for one command.
  *
@@ -173,6 +207,24 @@ export const createHookBootstrap = (
   const lines = [
     `export PI_ASSISTED_BY_TRAILER=${quoteForShell(assistedBy)}`,
     `export PI_CO_AUTHORED_BY_TRAILER=${quoteForShell(coAuthoredBy)}`,
+    `. ${quoteForShell(hookPath)}`,
+  ]
+
+  return `${lines.join("\n")}`
+}
+
+/**
+ * Create shell code that installs the gh PR creation wrapper for one command.
+ *
+ * @type {(options?: GhPrCreateHookBootstrapOptions) => string}
+ */
+export const createGhPrCreateHookBootstrap = (
+  { hookPath = "", trailer = "" }: GhPrCreateHookBootstrapOptions = {},
+): string => {
+  if (!hookPath || !trailer) return ""
+
+  const lines = [
+    `export PI_PR_OPENED_BY_TRAILER=${quoteForShell(trailer)}`,
     `. ${quoteForShell(hookPath)}`,
   ]
 

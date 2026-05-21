@@ -1,13 +1,22 @@
 import { spawnSync } from "node:child_process"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import {
+  chmodSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import {
+  buildPrTrailer,
   buildTrailers,
+  createGhPrCreateHookBootstrap,
   createHookBootstrap,
   detectSpecializedTools,
+  hasGhPrCreateInvocation,
   hasGitCommitInvocation,
   resolveCoAuthor,
 } from "../src/core/assisted-by.ts"
@@ -15,6 +24,9 @@ import {
 const repoPrefix = join(tmpdir(), "assisted-by-")
 const hookPath = fileURLToPath(
   new URL("../bin/git-commit-hook.sh", import.meta.url),
+)
+const prCreateHookPath = fileURLToPath(
+  new URL("../bin/gh-pr-create-hook.sh", import.meta.url),
 )
 
 /** @type {(actual: unknown, expected: unknown) => void} */
@@ -105,6 +117,102 @@ Deno.test("detectSpecializedTools only records supported analysis tools", () => 
 Deno.test("hasGitCommitInvocation matches git commit and skips other git commands", () => {
   assertEquals(hasGitCommitInvocation({ command: "git commit -m test" }), true)
   assertEquals(hasGitCommitInvocation({ command: "git status" }), false)
+})
+
+Deno.test("PR trailer helpers handle gh pr create invocations", () => {
+  assertEquals(
+    hasGhPrCreateInvocation({ command: "git status && gh pr create --fill" }),
+    true,
+  )
+  assertEquals(
+    hasGhPrCreateInvocation({ command: "gh -R owner/repo pr new" }),
+    true,
+  )
+  assertEquals(hasGhPrCreateInvocation({ command: "gh pr view" }), false)
+  assertEquals(
+    buildPrTrailer({
+      model: "claude-sonnet-4-5",
+      thinking: "high",
+      harness: "pi",
+    }),
+    "<sub>PR opened by claude-sonnet-4-5 high on pi</sub>",
+  )
+  assertEquals(
+    createGhPrCreateHookBootstrap({
+      hookPath: "/tmp/gh-pr-create-hook.sh",
+      trailer: "<sub>PR opened by model high on pi</sub>",
+    }),
+    "export PI_PR_OPENED_BY_TRAILER='<sub>PR opened by model high on pi</sub>'\n. '/tmp/gh-pr-create-hook.sh'",
+  )
+})
+
+Deno.test("gh pr create hook appends PR trailer without changing visible output", () => {
+  const repo = mkdtempSync(repoPrefix)
+  const bodyPath = join(repo, "body.txt")
+  const fakeGhPath = join(repo, "gh")
+
+  try {
+    writeFileSync(
+      fakeGhPath,
+      `#!/usr/bin/env bash
+if [ "$1" = "pr" ] && [ "$2" = "create" ]; then
+  echo "https://github.com/owner/repo/pull/1"
+  exit 0
+fi
+
+if [ "$1" = "pr" ] && [ "$2" = "list" ]; then
+  echo "https://github.com/owner/repo/pull/1"
+  exit 0
+fi
+
+if [ "$1" = "pr" ] && [ "$2" = "view" ]; then
+  for arg in "$@"; do
+    if [ "$arg" = "url" ]; then
+      echo "https://github.com/owner/repo/pull/1"
+      exit 0
+    fi
+    if [ "$arg" = "body" ]; then
+      echo "Existing body"
+      exit 0
+    fi
+  done
+fi
+
+if [ "$1" = "pr" ] && [ "$2" = "edit" ]; then
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--body-file" ]; then
+      cp "$2" "$ASSISTED_BY_BODY_PATH"
+      echo "suppressed edit output"
+      exit 0
+    fi
+    shift
+  done
+fi
+
+exit 1
+`,
+    )
+    chmodSync(fakeGhPath, 0o755)
+
+    const bootstrap = createGhPrCreateHookBootstrap({
+      hookPath: prCreateHookPath,
+      trailer: "<sub>PR opened by claude-sonnet-4-5 high on pi</sub>",
+    })
+
+    const output = run({
+      command:
+        `export PATH='${repo}':$PATH\nexport ASSISTED_BY_BODY_PATH='${bodyPath}'\n${bootstrap}\ntrue && gh pr create --title test`,
+      cwd: repo,
+    })
+
+    assertEquals(output, "https://github.com/owner/repo/pull/1")
+    assertEquals(
+      readFileSync(bodyPath, "utf8"),
+      "Existing body\n\n<sub>PR opened by claude-sonnet-4-5 high on pi</sub>\n",
+    )
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
 })
 
 Deno.test("hook bootstrap appends trailers, preserves distinct co-authors, and avoids duplicates on amend", () => {

@@ -1,13 +1,14 @@
 # @scarf/assisted-by
 
-Mechanical kernel-style AI attribution trailers for Pi and OpenCode `git commit` calls.
+Mechanical kernel-style AI attribution trailers for Pi and OpenCode `git commit` and `gh pr create` calls.
 
 ## What it does
 
-- intercepts Pi `bash` tool calls that invoke `git commit`
-- wraps Pi `!git commit` user bash commands the same way
-- wraps OpenCode bash/shell tool calls that invoke `git commit`
-- appends trailers with Git's built-in `--trailer` support
+- intercepts Pi `bash` tool calls that invoke `git commit` or `gh pr create`
+- wraps Pi `!git commit` and `!gh pr create` user bash commands the same way
+- wraps OpenCode bash/shell tool calls that invoke `git commit` or `gh pr create`
+- appends commit trailers with Git's built-in `--trailer` support
+- appends PR body attribution: `<sub>PR opened by MODEL THINKING on HARNESS</sub>`
 - de-duplicates trailers on `--amend` via `trailer.ifexists=addIfDifferent`
 - emits kernel-style attribution:
   - `Assisted-by: AGENT:MODEL [TOOL ...]`
@@ -114,7 +115,8 @@ The workflow uses GitHub Actions OIDC, so link the JSR package to this GitHub re
 
 ## Notes
 
-- this intercepts `git commit` mechanically; the model does not format or decide the trailers
+- this intercepts `git commit` and `gh pr create` mechanically; the model does not format or decide the trailers
 - it does not rewrite commits created by commands other than `git commit`
+- it updates PR bodies only after successful `gh pr create` calls
 - JSR's npm compatibility package is `@jsr/scarf__assisted-by`, not an npmjs `@scarf/assisted-by` publish
 - Pi loads `./extensions` by convention

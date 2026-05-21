@@ -1,7 +1,7 @@
 {
   "name": "@scarf/assisted-by",
   "version": "0.2.0",
-  "description": "Mechanical Assisted-by and Co-authored-by trailers for Pi and OpenCode git commits.",
+  "description": "Mechanical Assisted-by, Co-authored-by, and PR body trailers for Pi and OpenCode.",
   "license": "AGPL-3.0-only",
   "keywords": ["pi-package", "opencode-plugin"],
   "nodeModulesDir": "auto",

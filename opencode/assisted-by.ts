@@ -2,9 +2,12 @@ import { fileURLToPath } from "node:url"
 import process from "node:process"
 
 import {
+  buildPrTrailer,
   buildTrailers,
+  createGhPrCreateHookBootstrap,
   createHookBootstrap,
   detectSpecializedTools,
+  hasGhPrCreateInvocation,
   hasGitCommitInvocation,
   normalizeTools,
 } from "../src/core/assisted-by.ts"
@@ -40,8 +43,11 @@ type BuildWrappedCommandOptions = {
   detectedTools: Set<string>
 }
 
-const hookPath = fileURLToPath(
+const commitHookPath = fileURLToPath(
   new URL("../bin/git-commit-hook.sh", import.meta.url),
+)
+const prCreateHookPath = fileURLToPath(
+  new URL("../bin/gh-pr-create-hook.sh", import.meta.url),
 )
 
 const agentName = process.env.OPENCODE_ASSISTED_BY_AGENT?.trim() || "opencode"
@@ -72,18 +78,36 @@ const collectTools = (command: string, detectedTools: Set<string>): void => {
 const buildWrappedCommand = (
   { command, model, detectedTools }: BuildWrappedCommandOptions,
 ): string => {
-  if (!hasGitCommitInvocation({ command })) return ""
   if (!model) return ""
 
-  const trailers = buildTrailers({
-    agent: agentName,
-    model,
-    tools: [...detectedTools, ...extraTools],
-  })
+  const bootstraps: string[] = []
 
-  if (!trailers.assistedBy) return ""
+  if (hasGitCommitInvocation({ command })) {
+    const trailers = buildTrailers({
+      agent: agentName,
+      model,
+      tools: [...detectedTools, ...extraTools],
+    })
 
-  return `${createHookBootstrap({ hookPath, ...trailers })}\n${command}`
+    const bootstrap = createHookBootstrap({
+      hookPath: commitHookPath,
+      ...trailers,
+    })
+    if (bootstrap) bootstraps.push(bootstrap)
+  }
+
+  if (hasGhPrCreateInvocation({ command })) {
+    const trailer = buildPrTrailer({ model, harness: agentName })
+    const bootstrap = createGhPrCreateHookBootstrap({
+      hookPath: prCreateHookPath,
+      trailer,
+    })
+    if (bootstrap) bootstraps.push(bootstrap)
+  }
+
+  if (bootstraps.length === 0) return ""
+
+  return `${bootstraps.join("\n")}\n${command}`
 }
 
 const assistedByOpenCodePlugin = (

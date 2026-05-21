@@ -7,9 +7,12 @@ import {
 } from "@mariozechner/pi-coding-agent"
 
 import {
+  buildPrTrailer,
   buildTrailers,
+  createGhPrCreateHookBootstrap,
   createHookBootstrap,
   detectSpecializedTools,
+  hasGhPrCreateInvocation,
   hasGitCommitInvocation,
   normalizeTools,
 } from "../src/core/assisted-by.ts"
@@ -18,6 +21,7 @@ type ExtensionContext = { model?: { id?: string } }
 type ToolCallEvent = { input: { command: string } }
 type UserBashEvent = { command: string }
 type PiApi = {
+  getThinkingLevel?: () => string
   on(
     name: "tool_call",
     handler: (
@@ -37,10 +41,14 @@ type BuildWrappedCommandOptions = {
   command: string
   ctx: ExtensionContext
   detectedTools: Set<string>
+  thinking: string
 }
 
-const hookPath = fileURLToPath(
+const commitHookPath = fileURLToPath(
   new URL("../bin/git-commit-hook.sh", import.meta.url),
+)
+const prCreateHookPath = fileURLToPath(
+  new URL("../bin/gh-pr-create-hook.sh", import.meta.url),
 )
 
 const agentName = process.env.PI_ASSISTED_BY_AGENT?.trim() || "pi"
@@ -59,25 +67,48 @@ const collectTools = (
 
 /** @type {(options: BuildWrappedCommandOptions) => string} */
 const buildWrappedCommand = (
-  { command, ctx, detectedTools }: BuildWrappedCommandOptions,
+  { command, ctx, detectedTools, thinking }: BuildWrappedCommandOptions,
 ): string => {
-  if (!hasGitCommitInvocation({ command })) return ""
   if (!ctx.model?.id) return ""
 
-  const trailers = buildTrailers({
-    agent: agentName,
-    model: ctx.model.id,
-    tools: [...detectedTools, ...extraTools],
-  })
+  const bootstraps: string[] = []
 
-  if (!trailers.assistedBy) return ""
+  if (hasGitCommitInvocation({ command })) {
+    const trailers = buildTrailers({
+      agent: agentName,
+      model: ctx.model.id,
+      tools: [...detectedTools, ...extraTools],
+    })
 
-  return `${createHookBootstrap({ hookPath, ...trailers })}\n${command}`
+    const bootstrap = createHookBootstrap({
+      hookPath: commitHookPath,
+      ...trailers,
+    })
+    if (bootstrap) bootstraps.push(bootstrap)
+  }
+
+  if (hasGhPrCreateInvocation({ command })) {
+    const trailer = buildPrTrailer({
+      model: ctx.model.id,
+      thinking,
+      harness: agentName,
+    })
+    const bootstrap = createGhPrCreateHookBootstrap({
+      hookPath: prCreateHookPath,
+      trailer,
+    })
+    if (bootstrap) bootstraps.push(bootstrap)
+  }
+
+  if (bootstraps.length === 0) return ""
+
+  return `${bootstraps.join("\n")}\n${command}`
 }
 
 /** @type {(pi: PiApi) => void} */
 const assistedByExtension = (pi: PiApi): void => {
   const detectedTools = new Set(extraTools)
+  const thinkingLevel = (): string => pi.getThinkingLevel?.() ?? ""
 
   pi.on("tool_call", (event: ToolCallEvent, ctx: ExtensionContext) => {
     if (!isToolCallEventType("bash", event as never)) return
@@ -87,6 +118,7 @@ const assistedByExtension = (pi: PiApi): void => {
       command: event.input.command,
       ctx,
       detectedTools,
+      thinking: thinkingLevel(),
     })
     if (wrapped) event.input.command = wrapped
   })
@@ -98,6 +130,7 @@ const assistedByExtension = (pi: PiApi): void => {
       command: event.command,
       ctx,
       detectedTools,
+      thinking: thinkingLevel(),
     })
     if (!wrapped) return
 

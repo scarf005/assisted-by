@@ -2,11 +2,14 @@ import { fileURLToPath } from "node:url"
 import process from "node:process"
 
 import {
+  buildIssueTrailer,
   buildPrTrailer,
   buildTrailers,
+  createGhIssueCreateHookBootstrap,
   createGhPrCreateHookBootstrap,
   createHookBootstrap,
   detectSpecializedTools,
+  hasGhIssueCreateInvocation,
   hasGhPrCreateInvocation,
   hasGitCommitInvocation,
   normalizeTools,
@@ -99,6 +102,15 @@ const buildWrappedCommand = (
   if (hasGhPrCreateInvocation({ command })) {
     const trailer = buildPrTrailer({ model, harness: agentName })
     const bootstrap = createGhPrCreateHookBootstrap({
+      hookPath: prCreateHookPath,
+      trailer,
+    })
+    if (bootstrap) bootstraps.push(bootstrap)
+  }
+
+  if (hasGhIssueCreateInvocation({ command })) {
+    const trailer = buildIssueTrailer({ model, harness: agentName })
+    const bootstrap = createGhIssueCreateHookBootstrap({
       hookPath: prCreateHookPath,
       trailer,
     })

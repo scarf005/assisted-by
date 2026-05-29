@@ -8,11 +8,14 @@ export type BuildTrailersOptions = {
   tools?: Iterable<unknown>
 }
 export type Trailers = { assistedBy: string; coAuthoredBy: string }
-export type PrTrailerOptions = {
+export type OpenedByTrailerOptions = {
   model?: unknown
   thinking?: unknown
   harness?: unknown
+  subject?: unknown
 }
+export type PrTrailerOptions = Omit<OpenedByTrailerOptions, "subject">
+export type IssueTrailerOptions = PrTrailerOptions
 export type CommandOptions = { command?: unknown }
 export type HookBootstrapOptions = {
   hookPath?: string
@@ -23,6 +26,7 @@ export type GhPrCreateHookBootstrapOptions = {
   hookPath?: string
   trailer?: string
 }
+export type GhIssueCreateHookBootstrapOptions = GhPrCreateHookBootstrapOptions
 
 const KNOWN_SPECIALIZED_TOOLS: SpecializedToolRule[] = [
   { name: "coccinelle", patterns: [/\bcoccinelle\b/i, /\bspatch\b/i] },
@@ -175,23 +179,49 @@ export const hasGhPrCreateInvocation = (
   /(^|[\n;&|()\s])gh(?:\s+[^\n;&|()]+)*\s+pr\s+(create|new)(\s|$)/m
     .test(`${command ?? ""}`)
 
+/** @type {(options?: CommandOptions) => boolean} */
+export const hasGhIssueCreateInvocation = (
+  { command }: CommandOptions = {},
+): boolean =>
+  /(^|[\n;&|()\s])gh(?:\s+[^\n;&|()]+)*\s+issue\s+create(\s|$)/m
+    .test(`${command ?? ""}`)
+
+/**
+ * Build a GitHub body attribution trailer.
+ *
+ * @type {(options?: OpenedByTrailerOptions) => string}
+ */
+export const buildOpenedByTrailer = (
+  { model, thinking, harness = "pi", subject = "PR" }: OpenedByTrailerOptions =
+    {},
+): string => {
+  const modelValue = trimValue(model)
+  const thinkingValue = trimValue(thinking)
+  const harnessValue = trimValue(harness)
+  const subjectValue = trimValue(subject)
+  if (!modelValue || !harnessValue || !subjectValue) return ""
+
+  return `<sub>${subjectValue} opened by ${modelValue}${
+    thinkingValue ? ` ${thinkingValue}` : ""
+  } on ${harnessValue}</sub>`
+}
+
 /**
  * Build a GitHub PR body attribution trailer.
  *
  * @type {(options?: PrTrailerOptions) => string}
  */
-export const buildPrTrailer = (
-  { model, thinking, harness = "pi" }: PrTrailerOptions = {},
-): string => {
-  const modelValue = trimValue(model)
-  const thinkingValue = trimValue(thinking)
-  const harnessValue = trimValue(harness)
-  if (!modelValue || !harnessValue) return ""
+export const buildPrTrailer = (options: PrTrailerOptions = {}): string =>
+  buildOpenedByTrailer({ ...options, subject: "PR" })
 
-  return `<sub>PR opened by ${modelValue}${
-    thinkingValue ? ` ${thinkingValue}` : ""
-  } on ${harnessValue}</sub>`
-}
+/**
+ * Build a GitHub issue body attribution trailer.
+ *
+ * @type {(options?: IssueTrailerOptions) => string}
+ */
+export const buildIssueTrailer = (
+  options: IssueTrailerOptions = {},
+): string => buildOpenedByTrailer({ ...options, subject: "Issue" })
 
 /**
  * Create shell code that installs the git commit wrapper for one command.
@@ -225,6 +255,24 @@ export const createGhPrCreateHookBootstrap = (
 
   const lines = [
     `export PI_PR_OPENED_BY_TRAILER=${quoteForShell(trailer)}`,
+    `. ${quoteForShell(hookPath)}`,
+  ]
+
+  return `${lines.join("\n")}`
+}
+
+/**
+ * Create shell code that installs the gh issue creation wrapper for one command.
+ *
+ * @type {(options?: GhIssueCreateHookBootstrapOptions) => string}
+ */
+export const createGhIssueCreateHookBootstrap = (
+  { hookPath = "", trailer = "" }: GhIssueCreateHookBootstrapOptions = {},
+): string => {
+  if (!hookPath || !trailer) return ""
+
+  const lines = [
+    `export PI_ISSUE_OPENED_BY_TRAILER=${quoteForShell(trailer)}`,
     `. ${quoteForShell(hookPath)}`,
   ]
 

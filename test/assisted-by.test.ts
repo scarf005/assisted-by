@@ -11,11 +11,14 @@ import { join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import {
+  buildIssueTrailer,
   buildPrTrailer,
   buildTrailers,
+  createGhIssueCreateHookBootstrap,
   createGhPrCreateHookBootstrap,
   createHookBootstrap,
   detectSpecializedTools,
+  hasGhIssueCreateInvocation,
   hasGhPrCreateInvocation,
   hasGitCommitInvocation,
   resolveCoAuthor,
@@ -119,7 +122,7 @@ Deno.test("hasGitCommitInvocation matches git commit and skips other git command
   assertEquals(hasGitCommitInvocation({ command: "git status" }), false)
 })
 
-Deno.test("PR trailer helpers handle gh pr create invocations", () => {
+Deno.test("GitHub body trailer helpers handle gh create invocations", () => {
   assertEquals(
     hasGhPrCreateInvocation({ command: "git status && gh pr create --fill" }),
     true,
@@ -130,6 +133,14 @@ Deno.test("PR trailer helpers handle gh pr create invocations", () => {
   )
   assertEquals(hasGhPrCreateInvocation({ command: "gh pr view" }), false)
   assertEquals(
+    hasGhIssueCreateInvocation({ command: "gh -R owner/repo issue create" }),
+    true,
+  )
+  assertEquals(
+    hasGhIssueCreateInvocation({ command: "gh issue view 1" }),
+    false,
+  )
+  assertEquals(
     buildPrTrailer({
       model: "claude-sonnet-4-5",
       thinking: "high",
@@ -138,11 +149,26 @@ Deno.test("PR trailer helpers handle gh pr create invocations", () => {
     "<sub>PR opened by claude-sonnet-4-5 high on pi</sub>",
   )
   assertEquals(
+    buildIssueTrailer({
+      model: "claude-sonnet-4-5",
+      thinking: "high",
+      harness: "pi",
+    }),
+    "<sub>Issue opened by claude-sonnet-4-5 high on pi</sub>",
+  )
+  assertEquals(
     createGhPrCreateHookBootstrap({
       hookPath: "/tmp/gh-pr-create-hook.sh",
       trailer: "<sub>PR opened by model high on pi</sub>",
     }),
     "export PI_PR_OPENED_BY_TRAILER='<sub>PR opened by model high on pi</sub>'\n. '/tmp/gh-pr-create-hook.sh'",
+  )
+  assertEquals(
+    createGhIssueCreateHookBootstrap({
+      hookPath: "/tmp/gh-pr-create-hook.sh",
+      trailer: "<sub>Issue opened by model high on pi</sub>",
+    }),
+    "export PI_ISSUE_OPENED_BY_TRAILER='<sub>Issue opened by model high on pi</sub>'\n. '/tmp/gh-pr-create-hook.sh'",
   )
 })
 
@@ -209,6 +235,66 @@ exit 1
     assertEquals(
       readFileSync(bodyPath, "utf8"),
       "Existing body\n\n<sub>PR opened by claude-sonnet-4-5 high on pi</sub>\n",
+    )
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+Deno.test("gh issue create hook appends issue trailer without changing visible output", () => {
+  const repo = mkdtempSync(repoPrefix)
+  const bodyPath = join(repo, "issue-body.txt")
+  const fakeGhPath = join(repo, "gh")
+
+  try {
+    writeFileSync(
+      fakeGhPath,
+      `#!/usr/bin/env bash
+if [ "$1" = "issue" ] && [ "$2" = "create" ]; then
+  echo "https://github.com/owner/repo/issues/2"
+  exit 0
+fi
+
+if [ "$1" = "issue" ] && [ "$2" = "view" ]; then
+  for arg in "$@"; do
+    if [ "$arg" = "body" ]; then
+      echo "Existing issue body"
+      exit 0
+    fi
+  done
+fi
+
+if [ "$1" = "issue" ] && [ "$2" = "edit" ]; then
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--body-file" ]; then
+      cp "$2" "$ASSISTED_BY_BODY_PATH"
+      echo "suppressed issue edit output"
+      exit 0
+    fi
+    shift
+  done
+fi
+
+exit 1
+`,
+    )
+    chmodSync(fakeGhPath, 0o755)
+
+    const bootstrap = createGhIssueCreateHookBootstrap({
+      hookPath: prCreateHookPath,
+      trailer: "<sub>Issue opened by claude-sonnet-4-5 high on pi</sub>",
+    })
+
+    const output = run({
+      command:
+        `export PATH='${repo}':$PATH\nexport ASSISTED_BY_BODY_PATH='${bodyPath}'\n${bootstrap}\ngh issue create --title bug`,
+      cwd: repo,
+    })
+
+    assertEquals(output, "https://github.com/owner/repo/issues/2")
+    assertEquals(
+      readFileSync(bodyPath, "utf8"),
+      "Existing issue body\n\n<sub>Issue opened by claude-sonnet-4-5 high on pi</sub>\n",
     )
   } finally {
     rmSync(repo, { recursive: true, force: true })

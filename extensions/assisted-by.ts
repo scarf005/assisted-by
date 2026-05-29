@@ -7,11 +7,14 @@ import {
 } from "@mariozechner/pi-coding-agent"
 
 import {
+  buildIssueTrailer,
   buildPrTrailer,
   buildTrailers,
+  createGhIssueCreateHookBootstrap,
   createGhPrCreateHookBootstrap,
   createHookBootstrap,
   detectSpecializedTools,
+  hasGhIssueCreateInvocation,
   hasGhPrCreateInvocation,
   hasGitCommitInvocation,
   normalizeTools,
@@ -94,6 +97,19 @@ const buildWrappedCommand = (
       harness: agentName,
     })
     const bootstrap = createGhPrCreateHookBootstrap({
+      hookPath: prCreateHookPath,
+      trailer,
+    })
+    if (bootstrap) bootstraps.push(bootstrap)
+  }
+
+  if (hasGhIssueCreateInvocation({ command })) {
+    const trailer = buildIssueTrailer({
+      model: ctx.model.id,
+      thinking,
+      harness: agentName,
+    })
+    const bootstrap = createGhIssueCreateHookBootstrap({
       hookPath: prCreateHookPath,
       trailer,
     })

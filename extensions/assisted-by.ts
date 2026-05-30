@@ -17,6 +17,7 @@ import {
   hasGhIssueCreateInvocation,
   hasGhPrCreateInvocation,
   hasGitCommitInvocation,
+  hasGitRebaseContinueInvocation,
   normalizeTools,
 } from "../src/core/assisted-by.ts"
 
@@ -76,7 +77,10 @@ const buildWrappedCommand = (
 
   const bootstraps: string[] = []
 
-  if (hasGitCommitInvocation({ command })) {
+  if (
+    hasGitCommitInvocation({ command }) ||
+    hasGitRebaseContinueInvocation({ command })
+  ) {
     const trailers = buildTrailers({
       agent: agentName,
       model: ctx.model.id,

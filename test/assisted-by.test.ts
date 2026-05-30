@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process"
 import {
   chmodSync,
+  existsSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -21,6 +22,7 @@ import {
   hasGhIssueCreateInvocation,
   hasGhPrCreateInvocation,
   hasGitCommitInvocation,
+  hasGitRebaseContinueInvocation,
   resolveCoAuthor,
 } from "../src/core/assisted-by.ts"
 
@@ -120,6 +122,21 @@ Deno.test("detectSpecializedTools only records supported analysis tools", () => 
 Deno.test("hasGitCommitInvocation matches git commit and skips other git commands", () => {
   assertEquals(hasGitCommitInvocation({ command: "git commit -m test" }), true)
   assertEquals(hasGitCommitInvocation({ command: "git status" }), false)
+})
+
+Deno.test("hasGitRebaseContinueInvocation matches only rebase continue", () => {
+  assertEquals(
+    hasGitRebaseContinueInvocation({ command: "git rebase --continue" }),
+    true,
+  )
+  assertEquals(
+    hasGitRebaseContinueInvocation({ command: "git rebase --abort" }),
+    false,
+  )
+  assertEquals(
+    hasGitRebaseContinueInvocation({ command: "git status" }),
+    false,
+  )
 })
 
 Deno.test("GitHub body trailer helpers handle gh create invocations", () => {
@@ -296,6 +313,77 @@ exit 1
       readFileSync(bodyPath, "utf8"),
       "Existing issue body\n\n<sub>Issue opened by claude-sonnet-4-5 high on pi</sub>\n",
     )
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+Deno.test("git commit hook disables editor for message-less commit", () => {
+  const repo = mkdtempSync(repoPrefix)
+  const markerPath = join(repo, "editor-ran")
+
+  try {
+    run({ command: "git init -q", cwd: repo })
+    run({
+      command:
+        "git config user.name test && git config user.email test@example.com",
+      cwd: repo,
+    })
+
+    writeFileSync(join(repo, "a.txt"), "one\n")
+    run({ command: "git add a.txt", cwd: repo })
+
+    const bootstrap = createHookBootstrap({
+      hookPath,
+      assistedBy: "Assisted-by: pi:gpt-5.4",
+    })
+    const result = spawnSync(
+      "bash",
+      [
+        "-lc",
+        `${bootstrap}\nGIT_EDITOR='sh -c "echo opened > ${markerPath}"' git commit`,
+      ],
+      { cwd: repo, encoding: "utf8" },
+    )
+
+    assertNotEquals(result.status, 0)
+    assertEquals(
+      result.stderr.includes("assisted-by: refusing git commit"),
+      true,
+    )
+    assertEquals(result.stdout.includes("opened"), false)
+    assertEquals(result.stderr.includes("opened"), false)
+    assertEquals(existsSync(markerPath), false)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+Deno.test("git hook disables editor for rebase continue", () => {
+  const repo = mkdtempSync(repoPrefix)
+  const fakeGitPath = join(repo, "git")
+
+  try {
+    writeFileSync(
+      fakeGitPath,
+      `#!/usr/bin/env bash
+printf '%s\\n' "\${GIT_EDITOR:-}"
+`,
+    )
+    chmodSync(fakeGitPath, 0o755)
+
+    const bootstrap = createHookBootstrap({
+      hookPath,
+      assistedBy: "Assisted-by: pi:gpt-5.4",
+    })
+
+    const output = run({
+      command:
+        `${bootstrap}\nPATH='${repo}':$PATH GIT_EDITOR=code git rebase --continue`,
+      cwd: repo,
+    })
+
+    assertEquals(output, ":")
   } finally {
     rmSync(repo, { recursive: true, force: true })
   }

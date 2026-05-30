@@ -173,6 +173,13 @@ export const hasGitCommitInvocation = (
 ): boolean => /(^|[\n;&|()\s])git\s+commit(\s|$)/m.test(`${command ?? ""}`)
 
 /** @type {(options?: CommandOptions) => boolean} */
+export const hasGitRebaseContinueInvocation = (
+  { command }: CommandOptions = {},
+): boolean =>
+  /(^|[\n;&|()\s])git\s+rebase(?:\s+[^\n;&|()]+)*\s+--continue(\s|$)/m
+    .test(`${command ?? ""}`)
+
+/** @type {(options?: CommandOptions) => boolean} */
 export const hasGhPrCreateInvocation = (
   { command }: CommandOptions = {},
 ): boolean =>

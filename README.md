@@ -1,13 +1,14 @@
 # @scarf/assisted-by
 
-Mechanical kernel-style AI attribution trailers for Pi and OpenCode `git commit`, `gh pr create`, and `gh issue create` calls.
+Mechanical kernel-style AI attribution trailers for Pi and OpenCode `git commit`, `git rebase --continue`, `gh pr create`, and `gh issue create` calls.
 
 ## What it does
 
-- intercepts Pi `bash` tool calls that invoke `git commit`, `gh pr create`, or `gh issue create`
-- wraps Pi `!git commit`, `!gh pr create`, and `!gh issue create` user bash commands the same way
-- wraps OpenCode bash/shell tool calls that invoke `git commit`, `gh pr create`, or `gh issue create`
+- intercepts Pi `bash` tool calls that invoke `git commit`, `git rebase --continue`, `gh pr create`, or `gh issue create`
+- wraps Pi `!git commit`, `!git rebase --continue`, `!gh pr create`, and `!gh issue create` user bash commands the same way
+- wraps OpenCode bash/shell tool calls that invoke `git commit`, `git rebase --continue`, `gh pr create`, or `gh issue create`
 - appends commit trailers with Git's built-in `--trailer` support
+- prevents AI-blocking GUI editors by rejecting `git commit` without a message source and running intercepted commits/rebase-continues with `GIT_EDITOR=:`
 - appends PR body attribution: `<sub>PR opened by MODEL THINKING on HARNESS</sub>`
 - appends issue body attribution: `<sub>Issue opened by MODEL THINKING on HARNESS</sub>`
 - de-duplicates trailers on `--amend` via `trailer.ifexists=addIfDifferent`
@@ -116,7 +117,7 @@ The workflow uses GitHub Actions OIDC, so link the JSR package to this GitHub re
 
 ## Notes
 
-- this intercepts `git commit`, `gh pr create`, and `gh issue create` mechanically; the model does not format or decide the trailers
+- this intercepts `git commit`, `git rebase --continue`, `gh pr create`, and `gh issue create` mechanically; the model does not format or decide the trailers
 - it does not rewrite commits created by commands other than `git commit`
 - it updates PR bodies only after successful `gh pr create` calls
 - it updates issue bodies only after successful `gh issue create` calls that print the created issue URL

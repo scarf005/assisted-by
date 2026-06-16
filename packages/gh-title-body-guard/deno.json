@@ -1,0 +1,28 @@
+{
+  "name": "@scarf/gh-title-body-guard",
+  "version": "0.1.0",
+  "description": "Pi extension that blocks low-level GitHub PR/issue title and body API overwrites.",
+  "license": "AGPL-3.0-only",
+  "keywords": ["pi-package", "github", "guard"],
+  "nodeModulesDir": "auto",
+  "exports": {
+    ".": "./src/core.ts",
+    "./pi": "./extensions/gh-title-body-guard.ts"
+  },
+  "publish": {
+    "include": [
+      "extensions/",
+      "src/",
+      "README.md",
+      "deno.json"
+    ]
+  },
+  "fmt": { "semiColons": false, "proseWrap": "never" },
+  "tasks": {
+    "fmt": "deno fmt --no-semicolons --prose-wrap=never",
+    "fmt:check": "deno fmt --check --no-semicolons --prose-wrap=never",
+    "check": "deno check extensions/*.ts src/**/*.ts test/**/*.ts",
+    "lint": "deno lint",
+    "test": "deno test --allow-env"
+  }
+}

@@ -17,6 +17,7 @@ export type OpenedByTrailerOptions = {
 export type PrTrailerOptions = Omit<OpenedByTrailerOptions, "subject">
 export type IssueTrailerOptions = PrTrailerOptions
 export type CommandOptions = { command?: unknown }
+export type TranscriptOptions = { transcript?: unknown }
 export type HookBootstrapOptions = {
   hookPath?: string
   assistedBy?: string
@@ -116,6 +117,35 @@ export const resolveCoAuthor = ({ model }: ModelOptions = {}): string => {
   if (familyClaude) {
     const [, family] = familyClaude
     return `Claude ${titleFamily(family)} <noreply@anthropic.com>`
+  }
+
+  return ""
+}
+
+/**
+ * Resolve the acting model id from a Claude Code JSONL transcript.
+ *
+ * Harnesses that do not hand the model to their hooks leave the transcript as
+ * the only source; the last assistant entry is the one making the tool call.
+ *
+ * @type {(options?: TranscriptOptions) => string}
+ */
+export const resolveTranscriptModel = (
+  { transcript }: TranscriptOptions = {},
+): string => {
+  const lines = `${transcript ?? ""}`.split("\n")
+
+  for (let index = lines.length - 1; index >= 0; index -= 1) {
+    const line = lines[index].trim()
+    if (!line) continue
+
+    try {
+      const entry = JSON.parse(line) as { message?: { model?: unknown } }
+      const model = trimValue(entry?.message?.model)
+      if (model) return model
+    } catch {
+      continue
+    }
   }
 
   return ""

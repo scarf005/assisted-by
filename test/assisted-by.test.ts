@@ -9,6 +9,7 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+import process from "node:process"
 import { fileURLToPath } from "node:url"
 
 import {
@@ -24,6 +25,7 @@ import {
   hasGitCommitInvocation,
   hasGitRebaseContinueInvocation,
   resolveCoAuthor,
+  resolveTranscriptModel,
 } from "../src/core/assisted-by.ts"
 
 const repoPrefix = join(tmpdir(), "assisted-by-")
@@ -33,6 +35,39 @@ const hookPath = fileURLToPath(
 const prCreateHookPath = fileURLToPath(
   new URL("../bin/gh-pr-create-hook.sh", import.meta.url),
 )
+const claudeHookPath = fileURLToPath(
+  new URL("../claude/assisted-by.ts", import.meta.url),
+)
+
+/** @type {(entries: Record<string, unknown>[]) => string} */
+const transcriptOf = (entries: Record<string, unknown>[]): string =>
+  `${entries.map((entry) => JSON.stringify(entry)).join("\n")}\n`
+
+/**
+ * Drive the Claude Code hook the way the harness does: JSON on stdin.
+ *
+ * @type {(options: { input: unknown; env?: Record<string, string> }) => string}
+ */
+const runClaudeHook = (
+  { input, env = {} }: { input: unknown; env?: Record<string, string> },
+): string => {
+  const result = spawnSync("deno", [
+    "run",
+    "--allow-read",
+    "--allow-env",
+    claudeHookPath,
+  ], {
+    input: JSON.stringify(input),
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+  })
+
+  if (result.status !== 0) {
+    throw new Error(result.stderr || `claude hook exited ${result.status}`)
+  }
+
+  return result.stdout
+}
 
 /** @type {(actual: unknown, expected: unknown) => void} */
 const assertEquals = (actual: unknown, expected: unknown): void => {
@@ -445,4 +480,147 @@ Deno.test("hook bootstrap appends trailers, preserves distinct co-authors, and a
   } finally {
     rmSync(repo, { recursive: true, force: true })
   }
+})
+
+Deno.test("resolveTranscriptModel reads the acting model from the last assistant entry", () => {
+  const transcript = transcriptOf([
+    { type: "user", message: { role: "user", content: "hi" } },
+    {
+      type: "assistant",
+      message: { role: "assistant", model: "claude-sonnet-4-5" },
+    },
+    {
+      type: "assistant",
+      message: { role: "assistant", model: "claude-opus-4-8" },
+    },
+  ])
+
+  assertEquals(resolveTranscriptModel({ transcript }), "claude-opus-4-8")
+  assertEquals(resolveTranscriptModel({ transcript: "" }), "")
+  assertEquals(resolveTranscriptModel(), "")
+})
+
+Deno.test("resolveTranscriptModel survives truncated and malformed transcript lines", () => {
+  const transcript = [
+    JSON.stringify({
+      type: "assistant",
+      message: { model: "claude-opus-4-8" },
+    }),
+    "",
+    '{"type":"assistant","message":{"model":"claude-op',
+  ].join("\n")
+
+  assertEquals(resolveTranscriptModel({ transcript }), "claude-opus-4-8")
+})
+
+Deno.test("claude hook rewrites git commit with trailers and grants no permission", () => {
+  const dir = mkdtempSync(repoPrefix)
+  try {
+    const transcriptPath = join(dir, "transcript.jsonl")
+    writeFileSync(
+      transcriptPath,
+      transcriptOf([
+        { type: "assistant", message: { model: "claude-opus-4-8" } },
+      ]),
+    )
+
+    const stdout = runClaudeHook({
+      input: {
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: 'git commit -m "feat: x"', timeout: 5000 },
+        transcript_path: transcriptPath,
+      },
+    })
+
+    const parsed = JSON.parse(stdout)
+    const { hookSpecificOutput } = parsed
+    assertEquals(hookSpecificOutput.hookEventName, "PreToolUse")
+    assertEquals("permissionDecision" in hookSpecificOutput, false)
+    assertEquals(hookSpecificOutput.updatedInput.timeout, 5000)
+
+    const command = hookSpecificOutput.updatedInput.command as string
+    assertMatch(command, /Assisted-by: claude-code:claude-opus-4-8/)
+    assertMatch(
+      command,
+      /Co-authored-by: Claude Opus 4\.8 <noreply@anthropic\.com>/,
+    )
+    assertMatch(command, /git-commit-hook\.sh/)
+    assertMatch(command, /git commit -m "feat: x"$/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+Deno.test("claude hook ignores non-Bash tools, unrelated commands, and unusable input", () => {
+  const dir = mkdtempSync(repoPrefix)
+  try {
+    const transcriptPath = join(dir, "transcript.jsonl")
+    writeFileSync(
+      transcriptPath,
+      transcriptOf([
+        { type: "assistant", message: { model: "claude-opus-4-8" } },
+      ]),
+    )
+
+    const base = {
+      hook_event_name: "PreToolUse",
+      transcript_path: transcriptPath,
+    }
+
+    assertEquals(
+      runClaudeHook({
+        input: {
+          ...base,
+          tool_name: "Edit",
+          tool_input: { command: "git commit -m x" },
+        },
+      }),
+      "",
+    )
+    assertEquals(
+      runClaudeHook({
+        input: {
+          ...base,
+          tool_name: "Bash",
+          tool_input: { command: "git status" },
+        },
+      }),
+      "",
+    )
+    assertEquals(
+      runClaudeHook({
+        input: {
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          tool_input: { command: "git commit -m x" },
+          transcript_path: join(dir, "missing.jsonl"),
+        },
+      }),
+      "",
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+Deno.test("claude hook honors agent, model, and effort overrides for gh pr create", () => {
+  const stdout = runClaudeHook({
+    input: {
+      hook_event_name: "PreToolUse",
+      tool_name: "Bash",
+      tool_input: { command: "gh pr create --fill" },
+      transcript_path: "",
+    },
+    env: {
+      CLAUDE_ASSISTED_BY_MODEL: "claude-opus-4-8",
+      CLAUDE_ASSISTED_BY_AGENT: "claude-code-web",
+      CLAUDE_EFFORT: "high",
+    },
+  })
+
+  const command = JSON.parse(stdout).hookSpecificOutput.updatedInput
+    .command as string
+  assertMatch(command, /PR opened by claude-opus-4-8 high on claude-code-web/)
+  assertMatch(command, /gh pr create --fill$/)
 })

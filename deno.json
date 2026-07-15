@@ -1,13 +1,14 @@
 {
   "name": "@scarf/assisted-by",
   "version": "0.2.0",
-  "description": "Mechanical Assisted-by, Co-authored-by, and PR body trailers for Pi and OpenCode.",
+  "description": "Mechanical Assisted-by, Co-authored-by, and PR body trailers for Pi, OpenCode, and Claude Code.",
   "license": "AGPL-3.0-only",
-  "keywords": ["pi-package", "opencode-plugin"],
+  "keywords": ["pi-package", "opencode-plugin", "claude-code-hook"],
   "nodeModulesDir": "auto",
   "exports": {
     ".": "./src/core/assisted-by.ts",
     "./cli": "./bin/assisted-by.ts",
+    "./claude": "./claude/assisted-by.ts",
     "./pi": "./extensions/assisted-by.ts",
     "./server": "./opencode/assisted-by.ts"
   },
@@ -17,6 +18,7 @@
   "publish": {
     "include": [
       "bin/",
+      "claude/",
       "extensions/",
       "opencode/",
       "src/",
@@ -29,9 +31,9 @@
   "tasks": {
     "fmt": "deno fmt --no-semicolons --prose-wrap=never",
     "fmt:check": "deno fmt --check --no-semicolons --prose-wrap=never",
-    "check": "deno check bin/*.ts extensions/*.ts opencode/*.ts src/**/*.ts test/**/*.ts",
+    "check": "deno check bin/*.ts claude/*.ts extensions/*.ts opencode/*.ts src/**/*.ts test/**/*.ts",
     "lint": "deno lint",
-    "test": "deno test --allow-run=bash --allow-read --allow-write --allow-env",
+    "test": "deno test --allow-run=bash,deno --allow-read --allow-write --allow-env",
     "publish:dry-run": "deno publish --dry-run --allow-dirty",
     "publish": "deno publish"
   }

@@ -70,6 +70,11 @@ git() {
   command git "$@"
 }
 
-export -f _pi_assisted_by_is_git_rebase_continue
-export -f _pi_assisted_by_has_git_commit_message_source
-export -f git
+# `export -f` is a bashism. zsh reads it as `typeset -f` and prints every
+# definition instead of exporting it, so guard it: the wrapper only needs the
+# function defined in the sourcing shell.
+if [ -n "${BASH_VERSION:-}" ]; then
+  export -f _pi_assisted_by_is_git_rebase_continue
+  export -f _pi_assisted_by_has_git_commit_message_source
+  export -f git
+fi

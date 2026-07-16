@@ -1,12 +1,13 @@
 # @scarf/assisted-by
 
-Mechanical kernel-style AI attribution trailers for Pi and OpenCode `git commit`, `git rebase --continue`, `gh pr create`, and `gh issue create` calls.
+Mechanical kernel-style AI attribution trailers for Pi, OpenCode, and Claude Code `git commit`, `git rebase --continue`, `gh pr create`, and `gh issue create` calls.
 
 ## What it does
 
 - intercepts Pi `bash` tool calls that invoke `git commit`, `git rebase --continue`, `gh pr create`, or `gh issue create`
 - wraps Pi `!git commit`, `!git rebase --continue`, `!gh pr create`, and `!gh issue create` user bash commands the same way
 - wraps OpenCode bash/shell tool calls that invoke `git commit`, `git rebase --continue`, `gh pr create`, or `gh issue create`
+- wraps Claude Code `Bash` tool calls the same way, through a `PreToolUse` hook
 - appends commit trailers with Git's built-in `--trailer` support
 - prevents AI-blocking GUI editors by rejecting `git commit` without a message source and running intercepted commits/rebase-continues with `GIT_EDITOR=:`
 - appends PR body attribution: `<sub>PR opened by MODEL THINKING on HARNESS</sub>`
@@ -72,6 +73,44 @@ Optional environment variables:
 - `OPENCODE_ASSISTED_BY_AGENT`: override the agent name in `Assisted-by:`. Default: `opencode`
 - `OPENCODE_ASSISTED_BY_EXTRA_TOOLS`: extra space- or comma-separated specialized tool labels to append
 
+## Install for Claude Code
+
+Claude Code loads hooks from settings, so point a `PreToolUse` hook at the entrypoint:
+
+```jsonc
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "deno run --allow-read --allow-env jsr:@scarf/assisted-by/claude",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+For local development, swap the `command` for `deno run --allow-read --allow-env ./claude/assisted-by.ts`.
+
+The hook emits `updatedInput` **without** a `permissionDecision`, so it rewrites the command but never grants permission on your behalf; the normal permission flow still applies to the rewritten command.
+
+Optional environment variables:
+
+- `CLAUDE_ASSISTED_BY_AGENT`: override the agent name in `Assisted-by:`. Default: `claude-code`
+- `CLAUDE_ASSISTED_BY_EXTRA_TOOLS`: extra space- or comma-separated specialized tool labels to append
+- `CLAUDE_ASSISTED_BY_MODEL`: override model detection instead of reading the transcript
+
+Claude Code differs from Pi and OpenCode in two ways worth knowing:
+
+- it does not hand the model to hooks, so the model is read from the last assistant entry of the session transcript; when the transcript is unreadable the hook stays silent rather than guessing
+- each hook run is a fresh process with no session memory, so specialized tools are detected from the current command only, not accumulated across the session as the long-lived Pi and OpenCode plugins do
+
 ## CLI
 
 Run directly from JSR:
@@ -118,6 +157,7 @@ The workflow uses GitHub Actions OIDC, so link the JSR package to this GitHub re
 ## Notes
 
 - this intercepts `git commit`, `git rebase --continue`, `gh pr create`, and `gh issue create` mechanically; the model does not format or decide the trailers
+- the Claude Code hook reads the transcript only to resolve the model id; it writes nothing back
 - it does not rewrite commits created by commands other than `git commit`
 - it updates PR bodies only after successful `gh pr create` calls
 - it updates issue bodies only after successful `gh issue create` calls that print the created issue URL

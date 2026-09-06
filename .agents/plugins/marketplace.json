@@ -1,0 +1,20 @@
+{
+  "name": "assisted-by-local",
+  "interface": {
+    "displayName": "Assisted-by Local"
+  },
+  "plugins": [
+    {
+      "name": "assisted-by",
+      "source": {
+        "source": "local",
+        "path": "."
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools"
+    }
+  ]
+}

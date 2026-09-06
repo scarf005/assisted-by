@@ -1,0 +1,29 @@
+{
+  "name": "assisted-by",
+  "version": "0.3.0",
+  "description": "Mechanical AI attribution trailers for Codex, Pi, and OpenCode git and GitHub workflows.",
+  "author": {
+    "name": "Scarf",
+    "url": "https://github.com/scarf005"
+  },
+  "homepage": "https://github.com/scarf005/assisted-by",
+  "repository": "https://github.com/scarf005/assisted-by",
+  "license": "AGPL-3.0-only",
+  "keywords": ["codex", "pi", "opencode", "git", "github", "attribution"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Assisted-by",
+    "shortDescription": "Add mechanical AI attribution to commits and GitHub items",
+    "longDescription": "Adds Assisted-by and Co-authored-by attribution to Codex git commits and GitHub creation workflows while preserving the existing Pi and OpenCode integrations.",
+    "developerName": "Scarf",
+    "category": "Developer Tools",
+    "capabilities": ["Interactive", "Write"],
+    "websiteURL": "https://github.com/scarf005/assisted-by",
+    "defaultPrompt": [
+      "Use assisted-by for this commit",
+      "Prepare this PR with attribution"
+    ],
+    "brandColor": "#2563EB",
+    "screenshots": []
+  }
+}

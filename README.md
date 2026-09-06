@@ -1,12 +1,13 @@
 # @scarf/assisted-by
 
-Mechanical kernel-style AI attribution trailers for Pi and OpenCode `git commit`, `git rebase --continue`, `gh pr create`, and `gh issue create` calls.
+Mechanical kernel-style AI attribution trailers for Codex, Pi, and OpenCode `git commit`, `git rebase --continue`, `gh pr create`, and `gh issue create` calls.
 
 ## What it does
 
 - intercepts Pi `bash` tool calls that invoke `git commit`, `git rebase --continue`, `gh pr create`, or `gh issue create`
 - wraps Pi `!git commit`, `!git rebase --continue`, `!gh pr create`, and `!gh issue create` user bash commands the same way
 - wraps OpenCode bash/shell tool calls that invoke `git commit`, `git rebase --continue`, `gh pr create`, or `gh issue create`
+- ships a Codex plugin skill and a sourceable Bash wrapper for the same workflows
 - appends commit trailers with Git's built-in `--trailer` support
 - prevents AI-blocking GUI editors by rejecting `git commit` without a message source and running intercepted commits/rebase-continues with `GIT_EDITOR=:`
 - appends PR body attribution: `<sub>PR opened by MODEL THINKING on HARNESS</sub>`
@@ -42,6 +43,23 @@ Optional environment variables:
 
 - `PI_ASSISTED_BY_AGENT`: override the agent name in `Assisted-by:`. Default: `pi`
 - `PI_ASSISTED_BY_EXTRA_TOOLS`: extra space- or comma-separated specialized tool labels to append
+
+## Install for Codex
+
+This repository is also a Codex plugin. Add the repository as a local marketplace and install it:
+
+```bash
+codex plugin marketplace add /absolute/path/to/assisted-by
+codex plugin add assisted-by@assisted-by-local
+```
+
+After restarting Codex, the `assisted-by` skill is available in chat. The installed plugin also provides a wrapper for explicit attribution from a Codex Bash command:
+
+```bash
+source /absolute/path/to/assisted-by/bin/codex-bash-hook.sh && git commit -m "subject"
+```
+
+The Codex wrapper uses `CODEX_ASSISTED_BY_MODEL`, then `CODEX_MODEL`, and records `codex` only when neither model identifier is available. It always uses `codex` as the default agent label, so Codex work is not mislabeled as Pi work. `CODEX_ASSISTED_BY_AGENT` and `CODEX_ASSISTED_BY_EXTRA_TOOLS` provide the matching overrides. Keep `source` chained with `&&`: if attribution setup fails, the commit command must not run.
 
 ## Install for OpenCode
 

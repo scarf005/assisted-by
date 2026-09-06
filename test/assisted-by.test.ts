@@ -30,6 +30,9 @@ const repoPrefix = join(tmpdir(), "assisted-by-")
 const hookPath = fileURLToPath(
   new URL("../bin/git-commit-hook.sh", import.meta.url),
 )
+const codexHookPath = fileURLToPath(
+  new URL("../bin/codex-bash-hook.sh", import.meta.url),
+)
 const prCreateHookPath = fileURLToPath(
   new URL("../bin/gh-pr-create-hook.sh", import.meta.url),
 )
@@ -442,6 +445,82 @@ Deno.test("hook bootstrap appends trailers, preserves distinct co-authors, and a
     const amended = run({ command: "git log -1 --pretty=%B", cwd: repo })
     assertEquals((amended.match(/Assisted-by:/g) ?? []).length, 1)
     assertEquals((amended.match(/Co-authored-by:/g) ?? []).length, 2)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+Deno.test("Codex wrapper adds Codex attribution and avoids duplicate trailers", () => {
+  const repo = mkdtempSync(repoPrefix)
+
+  try {
+    run({ command: "git init -q", cwd: repo })
+    run({
+      command:
+        "git config user.name test && git config user.email test@example.com",
+      cwd: repo,
+    })
+
+    writeFileSync(join(repo, "a.txt"), "one\n")
+    run({
+      command:
+        `CODEX_ASSISTED_BY_MODEL=gpt-6-astra source '${codexHookPath}' && git add a.txt && git commit -q -m codex`,
+      cwd: repo,
+    })
+
+    const committed = run({ command: "git log -1 --pretty=%B", cwd: repo })
+    assertMatch(committed, /^Assisted-by: codex:gpt-6-astra$/m)
+    assertMatch(
+      committed,
+      /^Co-authored-by: chatgpt-codex-connector\[bot\] <199175422\+chatgpt-codex-connector\[bot\]@users\.noreply\.github\.com>$/m,
+    )
+
+    writeFileSync(join(repo, "a.txt"), "one\ntwo\n")
+    run({ command: "git add a.txt", cwd: repo })
+    run({
+      command:
+        `CODEX_ASSISTED_BY_MODEL=gpt-6-astra source '${codexHookPath}' && git commit --amend --no-edit -q`,
+      cwd: repo,
+    })
+
+    const amended = run({ command: "git log -1 --pretty=%B", cwd: repo })
+    assertEquals((amended.match(/Assisted-by:/g) ?? []).length, 1)
+    assertEquals((amended.match(/Co-authored-by:/g) ?? []).length, 1)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+Deno.test("Codex wrapper failure prevents an uncredited commit", () => {
+  const repo = mkdtempSync(repoPrefix)
+  const fakeDenoPath = join(repo, "deno")
+
+  try {
+    run({ command: "git init -q", cwd: repo })
+    run({
+      command:
+        "git config user.name test && git config user.email test@example.com",
+      cwd: repo,
+    })
+    writeFileSync(fakeDenoPath, "#!/usr/bin/env bash\nexit 1\n")
+    chmodSync(fakeDenoPath, 0o755)
+    writeFileSync(join(repo, "a.txt"), "one\n")
+
+    const result = spawnSync(
+      "bash",
+      [
+        "-lc",
+        `PATH='${repo}':$PATH; source '${codexHookPath}' && git add a.txt && git commit -m blocked`,
+      ],
+      { cwd: repo, encoding: "utf8" },
+    )
+
+    assertNotEquals(result.status, 0)
+    const log = spawnSync("git", ["log", "-1", "--pretty=%B"], {
+      cwd: repo,
+      encoding: "utf8",
+    })
+    assertNotEquals(log.status, 0)
   } finally {
     rmSync(repo, { recursive: true, force: true })
   }

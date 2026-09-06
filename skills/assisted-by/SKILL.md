@@ -9,12 +9,10 @@ Use the repository's existing assisted-by integration for Codex-owned git and Gi
 
 ## Commit and rebase commands
 
-Resolve the installed wrapper first. Codex sets `CODEX_HOME`; the fallback is useful when developing from this checkout:
+Resolve `<plugin-root>` by going two directories up from this `SKILL.md` file. The installed plugin may nest the skill under a version folder; use the directory that actually contains this skill as the anchor, then source the wrapper from `<plugin-root>/bin/`:
 
 ```bash
-hook_path="$(find "${CODEX_HOME}/plugins/cache" -path '*/assisted-by/*/bin/codex-bash-hook.sh' -type f -print 2>/dev/null | sort -V | tail -n 1)"
-hook_path="${hook_path:-/home/scarf/repo/assisted-by/bin/codex-bash-hook.sh}"
-source "$hook_path" && git commit -m "subject"
+source <plugin-root>/bin/codex-bash-hook.sh && git commit -m "subject"
 ```
 
 The wrapper uses `CODEX_ASSISTED_BY_MODEL`, then `CODEX_MODEL`, and records `codex` only when neither model identifier is available. Set `CODEX_ASSISTED_BY_MODEL` before the command when the exact model identifier is available:
@@ -30,10 +28,8 @@ Use the same wrapper for `git rebase --continue`. Do not add a second copy of ei
 Use the wrapper for PR and issue creation so the body receives the matching opened-by line:
 
 ```bash
-hook_path="$(find "${CODEX_HOME}/plugins/cache" -path '*/assisted-by/*/bin/codex-bash-hook.sh' -type f -print 2>/dev/null | sort -V | tail -n 1)"
-hook_path="${hook_path:-/home/scarf/repo/assisted-by/bin/codex-bash-hook.sh}"
-source "$hook_path" && gh pr create --fill
-source "$hook_path" && gh issue create --title "Bug" --body "Details"
+source <plugin-root>/bin/codex-bash-hook.sh && gh pr create --fill
+source <plugin-root>/bin/codex-bash-hook.sh && gh issue create --title "Bug" --body "Details"
 ```
 
 The wrapper preserves the command's output and exit status. It does not edit `--dry-run` or `--web` operations.

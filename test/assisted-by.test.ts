@@ -80,6 +80,16 @@ const run = ({ command, cwd }: { command: string; cwd: string }): string => {
   return result.stdout.trimEnd()
 }
 
+/** @type {(cwd: string) => void} */
+const initializeRepo = (cwd: string): void => {
+  run({ command: "git init -q", cwd })
+  run({
+    command:
+      "git config commit.gpgsign false && git config core.fsmonitor false",
+    cwd,
+  })
+}
+
 Deno.test("buildTrailers follows kernel assisted-by format and adds mapped co-author", () => {
   const trailers = buildTrailers({
     agent: "pi",
@@ -326,7 +336,7 @@ Deno.test("git commit hook disables editor for message-less commit", () => {
   const markerPath = join(repo, "editor-ran")
 
   try {
-    run({ command: "git init -q", cwd: repo })
+    initializeRepo(repo)
     run({
       command:
         "git config user.name test && git config user.email test@example.com",
@@ -396,7 +406,7 @@ Deno.test("hook bootstrap appends trailers, preserves distinct co-authors, and a
   const repo = mkdtempSync(repoPrefix)
 
   try {
-    run({ command: "git init -q", cwd: repo })
+    initializeRepo(repo)
     run({
       command:
         "git config user.name test && git config user.email test@example.com",
@@ -454,7 +464,7 @@ Deno.test("Codex wrapper adds Codex attribution and avoids duplicate trailers", 
   const repo = mkdtempSync(repoPrefix)
 
   try {
-    run({ command: "git init -q", cwd: repo })
+    initializeRepo(repo)
     run({
       command:
         "git config user.name test && git config user.email test@example.com",
@@ -496,7 +506,7 @@ Deno.test("Codex wrapper failure prevents an uncredited commit", () => {
   const fakeDenoPath = join(repo, "deno")
 
   try {
-    run({ command: "git init -q", cwd: repo })
+    initializeRepo(repo)
     run({
       command:
         "git config user.name test && git config user.email test@example.com",

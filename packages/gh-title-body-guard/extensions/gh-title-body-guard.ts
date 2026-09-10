@@ -29,11 +29,9 @@ type PiApi = {
   ): void
 }
 
-/** @type {(reason: string) => string} */
 const formatBlockedReason = (reason: string): string =>
   `gh-title-body-guard: ${reason}`
 
-/** @type {(pi: PiApi) => void} */
 const ghTitleBodyGuardExtension = (pi: PiApi): void => {
   pi.on("tool_call", (event: ToolCallEvent) => {
     if (typeof event.input?.command !== "string") return

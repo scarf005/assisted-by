@@ -1,4 +1,4 @@
-/** Specialized command detector. */
+// Specialized command detector.
 export type SpecializedToolRule = { name: string; patterns: RegExp[] }
 export type ToolsOptions = { tools?: Iterable<unknown> }
 export type ModelOptions = { model?: unknown }
@@ -35,27 +35,17 @@ const KNOWN_SPECIALIZED_TOOLS: SpecializedToolRule[] = [
   { name: "clang-tidy", patterns: [/\bclang-tidy\b/i] },
 ]
 
-/** @type {(value: unknown) => string} */
 const trimValue = (value: unknown): string =>
   `${value ?? ""}`.trim().replace(/^(["'])(.*)\1$/, "$2")
 
-/** @type {(family: string) => string} */
 const titleFamily = (family: string): string =>
   `${family.slice(0, 1).toUpperCase()}${family.slice(1)}`
 
-/**
- * Quote a value as one POSIX shell single-quoted token.
- *
- * @type {(value: unknown) => string}
- */
+// Quote a value as one POSIX shell single-quoted token.
 export const quoteForShell = (value: unknown): string =>
   `'${`${value ?? ""}`.replace(/'/g, `'"'"'`)}'`
 
-/**
- * Normalize tool labels while preserving first-seen order.
- *
- * @type {(options?: ToolsOptions) => string[]}
- */
+// Normalize tool labels while preserving first-seen order.
 export const normalizeTools = ({ tools = [] }: ToolsOptions = {}): string[] => {
   const seen = new Set<string>()
   const normalized: string[] = []
@@ -71,14 +61,9 @@ export const normalizeTools = ({ tools = [] }: ToolsOptions = {}): string[] => {
   return normalized
 }
 
-/** @type {(model: string) => string} */
 const modelName = (model: string): string => model.split("/").at(-1) ?? model
 
-/**
- * Resolve a known co-author identity for a model id.
- *
- * @type {(options?: ModelOptions) => string}
- */
+// Resolve a known co-author identity for a model id.
 export const resolveCoAuthor = ({ model }: ModelOptions = {}): string => {
   const modelRaw = trimValue(model)
   const normalized = modelRaw.toLowerCase()
@@ -121,11 +106,7 @@ export const resolveCoAuthor = ({ model }: ModelOptions = {}): string => {
   return ""
 }
 
-/**
- * Build git trailers for a model-assisted commit.
- *
- * @type {(options?: BuildTrailersOptions) => Trailers}
- */
+// Build git trailers for a model-assisted commit.
 export const buildTrailers = (
   { agent = "pi", model, tools = [] }: BuildTrailersOptions = {},
 ): Trailers => {
@@ -147,11 +128,7 @@ export const buildTrailers = (
   }
 }
 
-/**
- * Detect supported specialized analysis tools mentioned in a command.
- *
- * @type {(options?: CommandOptions) => string[]}
- */
+// Detect supported specialized analysis tools mentioned in a command.
 export const detectSpecializedTools = (
   { command }: CommandOptions = {},
 ): string[] => {
@@ -167,37 +144,29 @@ export const detectSpecializedTools = (
   return detected
 }
 
-/** @type {(options?: CommandOptions) => boolean} */
 export const hasGitCommitInvocation = (
   { command }: CommandOptions = {},
 ): boolean => /(^|[\n;&|()\s])git\s+commit(\s|$)/m.test(`${command ?? ""}`)
 
-/** @type {(options?: CommandOptions) => boolean} */
 export const hasGitRebaseContinueInvocation = (
   { command }: CommandOptions = {},
 ): boolean =>
   /(^|[\n;&|()\s])git\s+rebase(?:\s+[^\n;&|()]+)*\s+--continue(\s|$)/m
     .test(`${command ?? ""}`)
 
-/** @type {(options?: CommandOptions) => boolean} */
 export const hasGhPrCreateInvocation = (
   { command }: CommandOptions = {},
 ): boolean =>
   /(^|[\n;&|()\s])gh(?:\s+[^\n;&|()]+)*\s+pr\s+(create|new)(\s|$)/m
     .test(`${command ?? ""}`)
 
-/** @type {(options?: CommandOptions) => boolean} */
 export const hasGhIssueCreateInvocation = (
   { command }: CommandOptions = {},
 ): boolean =>
   /(^|[\n;&|()\s])gh(?:\s+[^\n;&|()]+)*\s+issue\s+create(\s|$)/m
     .test(`${command ?? ""}`)
 
-/**
- * Build a GitHub body attribution trailer.
- *
- * @type {(options?: OpenedByTrailerOptions) => string}
- */
+// Build a GitHub body attribution trailer.
 export const buildOpenedByTrailer = (
   { model, thinking, harness = "pi", subject = "PR" }: OpenedByTrailerOptions =
     {},
@@ -213,28 +182,16 @@ export const buildOpenedByTrailer = (
   } on ${harnessValue}</sub>`
 }
 
-/**
- * Build a GitHub PR body attribution trailer.
- *
- * @type {(options?: PrTrailerOptions) => string}
- */
+// Build a GitHub PR body attribution trailer.
 export const buildPrTrailer = (options: PrTrailerOptions = {}): string =>
   buildOpenedByTrailer({ ...options, subject: "PR" })
 
-/**
- * Build a GitHub issue body attribution trailer.
- *
- * @type {(options?: IssueTrailerOptions) => string}
- */
+// Build a GitHub issue body attribution trailer.
 export const buildIssueTrailer = (
   options: IssueTrailerOptions = {},
 ): string => buildOpenedByTrailer({ ...options, subject: "Issue" })
 
-/**
- * Create shell code that installs the git commit wrapper for one command.
- *
- * @type {(options?: HookBootstrapOptions) => string}
- */
+// Create shell code that installs the git commit wrapper for one command.
 export const createHookBootstrap = (
   { hookPath = "", assistedBy = "", coAuthoredBy = "" }: HookBootstrapOptions =
     {},
@@ -250,11 +207,7 @@ export const createHookBootstrap = (
   return `${lines.join("\n")}`
 }
 
-/**
- * Create shell code that installs the gh PR creation wrapper for one command.
- *
- * @type {(options?: GhPrCreateHookBootstrapOptions) => string}
- */
+// Create shell code that installs the gh PR creation wrapper for one command.
 export const createGhPrCreateHookBootstrap = (
   { hookPath = "", trailer = "" }: GhPrCreateHookBootstrapOptions = {},
 ): string => {
@@ -268,11 +221,7 @@ export const createGhPrCreateHookBootstrap = (
   return `${lines.join("\n")}`
 }
 
-/**
- * Create shell code that installs the gh issue creation wrapper for one command.
- *
- * @type {(options?: GhIssueCreateHookBootstrapOptions) => string}
- */
+// Create shell code that installs the gh issue creation wrapper for one command.
 export const createGhIssueCreateHookBootstrap = (
   { hookPath = "", trailer = "" }: GhIssueCreateHookBootstrapOptions = {},
 ): string => {

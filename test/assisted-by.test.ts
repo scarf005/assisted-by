@@ -25,6 +25,7 @@ import {
   hasGitRebaseContinueInvocation,
   resolveCoAuthor,
 } from "../src/core/assisted-by.ts"
+import { buildCodexPreToolUseOutput } from "../bin/codex-pre-tool-use.ts"
 
 const repoPrefix = join(tmpdir(), "assisted-by-")
 const hookPath = fileURLToPath(
@@ -37,7 +38,6 @@ const prCreateHookPath = fileURLToPath(
   new URL("../bin/gh-pr-create-hook.sh", import.meta.url),
 )
 
-/** @type {(actual: unknown, expected: unknown) => void} */
 const assertEquals = (actual: unknown, expected: unknown): void => {
   if (!Object.is(actual, expected)) {
     throw new Error(
@@ -46,7 +46,6 @@ const assertEquals = (actual: unknown, expected: unknown): void => {
   }
 }
 
-/** @type {(actual: unknown, expected: unknown) => void} */
 const assertDeepEquals = (actual: unknown, expected: unknown): void => {
   const actualJson = JSON.stringify(actual)
   const expectedJson = JSON.stringify(expected)
@@ -55,21 +54,18 @@ const assertDeepEquals = (actual: unknown, expected: unknown): void => {
   }
 }
 
-/** @type {(actual: string, pattern: RegExp) => void} */
 const assertMatch = (actual: string, pattern: RegExp): void => {
   if (!pattern.test(actual)) {
     throw new Error(`expected ${actual} to match ${pattern}`)
   }
 }
 
-/** @type {(actual: unknown, expected: unknown) => void} */
 const assertNotEquals = (actual: unknown, expected: unknown): void => {
   if (Object.is(actual, expected)) {
     throw new Error(`expected values to differ: ${JSON.stringify(actual)}`)
   }
 }
 
-/** @type {(options: { command: string; cwd: string }) => string} */
 const run = ({ command, cwd }: { command: string; cwd: string }): string => {
   const result = spawnSync("bash", ["-lc", command], { cwd, encoding: "utf8" })
   if (result.status !== 0) {
@@ -80,7 +76,6 @@ const run = ({ command, cwd }: { command: string; cwd: string }): string => {
   return result.stdout.trimEnd()
 }
 
-/** @type {(cwd: string) => void} */
 const initializeRepo = (cwd: string): void => {
   run({ command: "git init -q", cwd })
   run({
@@ -499,6 +494,59 @@ Deno.test("Codex wrapper adds Codex attribution and avoids duplicate trailers", 
   } finally {
     rmSync(repo, { recursive: true, force: true })
   }
+})
+
+Deno.test("Codex PreToolUse hook wraps attributable Bash commands", () => {
+  const output = buildCodexPreToolUseOutput({
+    input: {
+      hook_event_name: "PreToolUse",
+      model: "gpt-6-astra",
+      tool_name: "Bash",
+      tool_input: { command: "git status && git commit -m test", timeout: 30 },
+    },
+    pluginRoot: "/tmp/plugin root's",
+  })
+
+  assertDeepEquals(output, {
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "allow",
+      updatedInput: {
+        command:
+          `CODEX_ASSISTED_BY_MODEL='gpt-6-astra' source '/tmp/plugin root'"'"'s/bin/codex-bash-hook.sh' && git status && git commit -m test`,
+        timeout: 30,
+      },
+    },
+  })
+})
+
+Deno.test("Codex PreToolUse hook skips unrelated and already wrapped commands", () => {
+  const input = {
+    hook_event_name: "PreToolUse",
+    model: "gpt-6-astra",
+    tool_name: "Bash",
+  }
+
+  assertEquals(
+    buildCodexPreToolUseOutput({
+      input: { ...input, tool_input: { command: "git status" } },
+      pluginRoot: "/plugin",
+    }),
+    undefined,
+  )
+  assertEquals(
+    buildCodexPreToolUseOutput({
+      input: {
+        ...input,
+        tool_input: {
+          command:
+            "source /plugin/bin/codex-bash-hook.sh && git commit -m test",
+        },
+      },
+      pluginRoot: "/plugin",
+    }),
+    undefined,
+  )
 })
 
 Deno.test("Codex wrapper failure prevents an uncredited commit", () => {

@@ -7,7 +7,7 @@ Mechanical kernel-style AI attribution trailers for Codex, Pi, and OpenCode `git
 - intercepts Pi `bash` tool calls that invoke `git commit`, `git rebase --continue`, `gh pr create`, or `gh issue create`
 - wraps Pi `!git commit`, `!git rebase --continue`, `!gh pr create`, and `!gh issue create` user bash commands the same way
 - wraps OpenCode bash/shell tool calls that invoke `git commit`, `git rebase --continue`, `gh pr create`, or `gh issue create`
-- ships a Codex plugin skill and a sourceable Bash wrapper for the same workflows
+- automatically wraps the same Codex workflows through an installed plugin hook
 - appends commit trailers with Git's built-in `--trailer` support
 - prevents AI-blocking GUI editors by rejecting `git commit` without a message source and running intercepted commits/rebase-continues with `GIT_EDITOR=:`
 - appends PR body attribution: `<sub>PR opened by MODEL THINKING on HARNESS</sub>`
@@ -53,7 +53,9 @@ codex plugin marketplace add /absolute/path/to/assisted-by
 codex plugin add assisted-by@assisted-by-local
 ```
 
-After restarting Codex, the `assisted-by` skill is available in chat. The installed plugin also provides a wrapper for explicit attribution from a Codex Bash command:
+Start a new Codex conversation, open `/hooks`, and trust the `assisted-by` plugin hook. Codex requires this review whenever a non-managed hook is installed or changed.
+
+The hook automatically intercepts supported Codex Bash commands and uses the active model identifier. The installed plugin also provides the underlying wrapper for explicit use or troubleshooting:
 
 ```bash
 source /absolute/path/to/assisted-by/bin/codex-bash-hook.sh && git commit -m "subject"

@@ -9,11 +9,7 @@ const GH_MUTABLE_API_FIELD_PATTERN =
 const GH_API_CALL_PATTERN =
   /(^|[\n;&|()\s])gh(?:\s+[^\n;&|()]+)*\s+api\b([^\n;&|()]*)/gm
 
-/**
- * Detect low-level gh API commands that can overwrite an existing PR/issue title or body.
- *
- * @type {(options?: CommandOptions) => ProtectedGhTitleBodyMutation | undefined}
- */
+// Detect low-level gh API commands that can overwrite an existing PR/issue title or body.
 export const detectProtectedGhTitleBodyMutation = (
   { command }: CommandOptions = {},
 ): ProtectedGhTitleBodyMutation | undefined => {

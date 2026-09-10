@@ -1,6 +1,5 @@
 import { detectProtectedGhTitleBodyMutation } from "../src/core.ts"
 
-/** @type {(actual: unknown, expected: unknown) => void} */
 const assertEquals = (actual: unknown, expected: unknown): void => {
   if (!Object.is(actual, expected)) {
     throw new Error(

@@ -59,7 +59,6 @@ const extraTools = normalizeTools({
   tools: process.env.OPENCODE_ASSISTED_BY_EXTRA_TOOLS?.split(/[\s,]+/) ?? [],
 })
 
-/** @type {(model?: Model) => string} */
 const modelId = (model?: Model): string => {
   const id = `${model?.id ?? ""}`.trim()
   if (id) return id
@@ -67,18 +66,15 @@ const modelId = (model?: Model): string => {
   return `${model?.modelID ?? ""}`.trim()
 }
 
-/** @type {(tool: string) => boolean} */
 const isShellTool = (tool: string): boolean =>
   tool === "bash" || tool === "shell"
 
-/** @type {(command: string, detectedTools: Set<string>) => void} */
 const collectTools = (command: string, detectedTools: Set<string>): void => {
   for (const tool of detectSpecializedTools({ command })) {
     detectedTools.add(tool)
   }
 }
 
-/** @type {(options: BuildWrappedCommandOptions) => string} */
 const buildWrappedCommand = (
   { command, model, detectedTools }: BuildWrappedCommandOptions,
 ): string => {

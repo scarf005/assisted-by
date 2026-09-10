@@ -60,7 +60,6 @@ const extraTools = normalizeTools({
   tools: process.env.PI_ASSISTED_BY_EXTRA_TOOLS?.split(/[\s,]+/) ?? [],
 })
 
-/** @type {(options: CollectToolsOptions) => void} */
 const collectTools = (
   { command, detectedTools }: CollectToolsOptions,
 ): void => {
@@ -69,7 +68,6 @@ const collectTools = (
   }
 }
 
-/** @type {(options: BuildWrappedCommandOptions) => string} */
 const buildWrappedCommand = (
   { command, ctx, detectedTools, thinking }: BuildWrappedCommandOptions,
 ): string => {
@@ -125,7 +123,6 @@ const buildWrappedCommand = (
   return `${bootstraps.join("\n")}\n${command}`
 }
 
-/** @type {(pi: PiApi) => void} */
 const assistedByExtension = (pi: PiApi): void => {
   const detectedTools = new Set(extraTools)
   const thinkingLevel = (): string => pi.getThinkingLevel?.() ?? ""

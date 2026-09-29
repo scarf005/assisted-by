@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "deno run --quiet --allow-env=PLUGIN_ROOT,CODEX_ASSISTED_BY_MODEL \"$PLUGIN_ROOT/bin/codex-pre-tool-use.ts\"",
+            "command": "[ -z \"$PLUGIN_ROOT\" ] || deno run --quiet --allow-env=PLUGIN_ROOT,CODEX_ASSISTED_BY_MODEL \"$PLUGIN_ROOT/bin/codex-pre-tool-use.ts\"",
             "timeout": 10
           }
         ]

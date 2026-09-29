@@ -25,11 +25,18 @@ import {
   hasGitRebaseContinueInvocation,
   resolveCoAuthor,
 } from "../src/core/assisted-by.ts"
+import {
+  buildClaudePreToolUseOutput,
+  findTranscriptModel,
+} from "../bin/claude-pre-tool-use.ts"
 import { buildCodexPreToolUseOutput } from "../bin/codex-pre-tool-use.ts"
 
 const repoPrefix = join(tmpdir(), "assisted-by-")
 const hookPath = fileURLToPath(
   new URL("../bin/git-commit-hook.sh", import.meta.url),
+)
+const claudeHookPath = fileURLToPath(
+  new URL("../bin/claude-bash-hook.sh", import.meta.url),
 )
 const codexHookPath = fileURLToPath(
   new URL("../bin/codex-bash-hook.sh", import.meta.url),
@@ -582,4 +589,128 @@ Deno.test("Codex wrapper failure prevents an uncredited commit", () => {
   } finally {
     rmSync(repo, { recursive: true, force: true })
   }
+})
+
+Deno.test("Claude wrapper adds Claude Code attribution", () => {
+  const repo = mkdtempSync(repoPrefix)
+
+  try {
+    initializeRepo(repo)
+    run({
+      command:
+        "git config user.name test && git config user.email test@example.com",
+      cwd: repo,
+    })
+    writeFileSync(join(repo, "a.txt"), "one\n")
+    run({
+      command:
+        `CLAUDE_ASSISTED_BY_MODEL=claude-sonnet-4-5 source '${claudeHookPath}' && git add a.txt && git commit -q -m claude`,
+      cwd: repo,
+    })
+
+    const committed = run({ command: "git log -1 --pretty=%B", cwd: repo })
+    assertMatch(committed, /^Assisted-by: claude-code:claude-sonnet-4-5$/m)
+    assertMatch(
+      committed,
+      /^Co-authored-by: Claude Sonnet 4\.5 <noreply@anthropic\.com>$/m,
+    )
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+Deno.test("findTranscriptModel returns the latest real assistant model", () => {
+  const transcript = [
+    JSON.stringify({
+      type: "assistant",
+      message: { model: "claude-opus-5-5" },
+    }),
+    JSON.stringify({
+      type: "assistant",
+      message: { model: "claude-sonnet-5-5" },
+    }),
+    JSON.stringify({ type: "assistant", message: { model: "<synthetic>" } }),
+    JSON.stringify({ type: "user", message: { content: "hi" } }),
+    "{partial",
+  ].join("\n")
+
+  assertEquals(findTranscriptModel(transcript), "claude-sonnet-5-5")
+  assertEquals(findTranscriptModel(""), "")
+})
+
+Deno.test("Claude PreToolUse hook wraps attributable Bash commands", () => {
+  const input = {
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command: "git commit -m test" },
+    transcript_path: "/tmp/t.jsonl",
+  }
+  const wrapped = (model: string) => ({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "allow",
+      updatedInput: {
+        command:
+          `CLAUDE_ASSISTED_BY_MODEL='${model}' source '/plugin/bin/claude-bash-hook.sh' && git commit -m test`,
+      },
+    },
+  })
+
+  assertDeepEquals(
+    buildClaudePreToolUseOutput({
+      input,
+      pluginRoot: "/plugin",
+      readTranscript: () =>
+        JSON.stringify({ message: { model: "claude-sonnet-5-5" } }),
+    }),
+    wrapped("claude-sonnet-5-5"),
+  )
+  assertDeepEquals(
+    buildClaudePreToolUseOutput({
+      input,
+      pluginRoot: "/plugin",
+      readTranscript: () => {
+        throw new Error("missing")
+      },
+    }),
+    wrapped("claude"),
+  )
+  assertDeepEquals(
+    buildClaudePreToolUseOutput({
+      input,
+      modelOverride: "claude-opus-5-5",
+      pluginRoot: "/plugin",
+    }),
+    wrapped("claude-opus-5-5"),
+  )
+})
+
+Deno.test("Claude PreToolUse hook skips unrelated and already wrapped commands", () => {
+  const input = { hook_event_name: "PreToolUse", tool_name: "Bash" }
+
+  assertEquals(
+    buildClaudePreToolUseOutput({
+      input: { ...input, tool_input: { command: "git status" } },
+      pluginRoot: "/plugin",
+    }),
+    undefined,
+  )
+  assertEquals(
+    buildClaudePreToolUseOutput({
+      input: {
+        ...input,
+        tool_input: {
+          command: "source /plugin/bin/claude-bash-hook.sh && git commit -m t",
+        },
+      },
+      pluginRoot: "/plugin",
+    }),
+    undefined,
+  )
+  assertEquals(
+    buildClaudePreToolUseOutput({
+      input: { ...input, tool_input: { command: "git commit -m t" } },
+    }),
+    undefined,
+  )
 })

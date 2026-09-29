@@ -1,0 +1,12 @@
+{
+  "name": "assisted-by-local",
+  "owner": { "name": "Scarf" },
+  "plugins": [
+    {
+      "name": "assisted-by",
+      "source": "./",
+      "description": "Mechanical AI attribution trailers for Claude Code git and GitHub workflows.",
+      "category": "development"
+    }
+  ]
+}

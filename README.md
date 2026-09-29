@@ -1,6 +1,6 @@
 # @scarf/assisted-by
 
-Mechanical kernel-style AI attribution trailers for Codex, Pi, and OpenCode `git commit`, `git rebase --continue`, `gh pr create`, and `gh issue create` calls.
+Mechanical kernel-style AI attribution trailers for Claude Code, Codex, Pi, and OpenCode `git commit`, `git rebase --continue`, `gh pr create`, and `gh issue create` calls.
 
 ## What it does
 
@@ -8,6 +8,7 @@ Mechanical kernel-style AI attribution trailers for Codex, Pi, and OpenCode `git
 - wraps Pi `!git commit`, `!git rebase --continue`, `!gh pr create`, and `!gh issue create` user bash commands the same way
 - wraps OpenCode bash/shell tool calls that invoke `git commit`, `git rebase --continue`, `gh pr create`, or `gh issue create`
 - automatically wraps the same Codex workflows through an installed plugin hook
+- automatically wraps the same Claude Code workflows through an installed plugin hook
 - appends commit trailers with Git's built-in `--trailer` support
 - prevents AI-blocking GUI editors by rejecting `git commit` without a message source and running intercepted commits/rebase-continues with `GIT_EDITOR=:`
 - appends PR body attribution: `<sub>PR opened by MODEL THINKING on HARNESS</sub>`
@@ -62,6 +63,19 @@ source /absolute/path/to/assisted-by/bin/codex-bash-hook.sh && git commit -m "su
 ```
 
 The Codex wrapper uses `CODEX_ASSISTED_BY_MODEL`, then `CODEX_MODEL`, and records `codex` only when neither model identifier is available. It always uses `codex` as the default agent label, so Codex work is not mislabeled as Pi work. `CODEX_ASSISTED_BY_AGENT` and `CODEX_ASSISTED_BY_EXTRA_TOOLS` provide the matching overrides. Keep `source` chained with `&&`: if attribution setup fails, the commit command must not run.
+
+## Install for Claude Code
+
+This repository is also a Claude Code plugin. Add the repository as a local marketplace and install it:
+
+```bash
+claude plugin marketplace add /absolute/path/to/assisted-by
+claude plugin install assisted-by@assisted-by-local
+```
+
+The `PreToolUse` hook reads the active model from the latest assistant turn of the session transcript and records `claude` when it is unavailable. It uses `claude-code` as the default agent label. `CLAUDE_ASSISTED_BY_MODEL`, `CLAUDE_ASSISTED_BY_AGENT`, and `CLAUDE_ASSISTED_BY_EXTRA_TOOLS` provide overrides. Keep `source` chained with `&&` when using `bin/claude-bash-hook.sh` explicitly: if attribution setup fails, the commit command must not run.
+
+Set `attribution.commit` to an empty string in Claude Code settings so the built-in trailer does not duplicate this one.
 
 ## Install for OpenCode
 

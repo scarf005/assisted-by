@@ -25,10 +25,10 @@ export type CodexPreToolUseOutput = {
   }
 }
 
-const isRecord = (value: unknown): value is Record<string, unknown> =>
+export const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value)
 
-const needsAttribution = (command: string): boolean =>
+export const needsAttribution = (command: string): boolean =>
   hasGitCommitInvocation({ command }) ||
   hasGitRebaseContinueInvocation({ command }) ||
   hasGhPrCreateInvocation({ command }) ||

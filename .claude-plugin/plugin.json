@@ -1,0 +1,11 @@
+{
+  "name": "assisted-by",
+  "version": "0.3.0",
+  "description": "Mechanical AI attribution trailers for Claude Code git and GitHub workflows.",
+  "author": { "name": "Scarf", "url": "https://github.com/scarf005" },
+  "homepage": "https://github.com/scarf005/assisted-by",
+  "repository": "https://github.com/scarf005/assisted-by",
+  "license": "AGPL-3.0-only",
+  "keywords": ["claude-code", "git", "github", "attribution"],
+  "hooks": "./hooks/claude-hooks.json"
+}

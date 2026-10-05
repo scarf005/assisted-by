@@ -154,6 +154,47 @@ Deno.test("hasGitRebaseContinueInvocation matches only rebase continue", () => {
   )
 })
 
+Deno.test("command detectors finish on long positive and negative invocations", () => {
+  const coreUrl = new URL("../src/core/assisted-by.ts", import.meta.url).href
+  const command =
+    `gh pr create --repo scarf005/gc --base main --head fix/2-fastlane-icon --title "build: add Fastlane app icon" --body 'close #2\n\n- Add launcher artwork.\n' ; git status --short`
+  const cases = [
+    ["hasGhPrCreateInvocation", command, true],
+    ["hasGhIssueCreateInvocation", command, false],
+    [
+      "hasGhPrCreateInvocation",
+      `gh pr view ${"argument ".repeat(1000)}`,
+      false,
+    ],
+    [
+      "hasGhIssueCreateInvocation",
+      `gh issue create ${"argument ".repeat(1000)}`,
+      true,
+    ],
+    [
+      "hasGitRebaseContinueInvocation",
+      `git rebase ${"argument ".repeat(1000)}--abort`,
+      false,
+    ],
+    [
+      "hasGitRebaseContinueInvocation",
+      `git rebase ${"argument ".repeat(1000)}--continue`,
+      true,
+    ],
+  ]
+  for (const [detector, command, expected] of cases) {
+    const result = spawnSync(Deno.execPath(), [
+      "eval",
+      `import { ${detector} } from ${
+        JSON.stringify(coreUrl)
+      }; console.log(${detector}({ command: ${JSON.stringify(command)} }));`,
+    ], { encoding: "utf8", timeout: 3000 })
+    if (result.error) throw new Error(`${detector}: ${result.error.message}`)
+    assertEquals(result.status, 0)
+    assertEquals(result.stdout.trim(), `${expected}`)
+  }
+})
+
 Deno.test("GitHub body trailer helpers handle gh create invocations", () => {
   assertEquals(
     hasGhPrCreateInvocation({ command: "git status && gh pr create --fill" }),

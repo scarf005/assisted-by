@@ -157,7 +157,7 @@ Deno.test("hasGitRebaseContinueInvocation matches only rebase continue", () => {
 Deno.test("command detectors finish on long positive and negative invocations", () => {
   const coreUrl = new URL("../src/core/assisted-by.ts", import.meta.url).href
   const command =
-    `gh pr create --repo scarf005/gc --base main --head fix/2-fastlane-icon --title "build: add Fastlane app icon" --body 'close #2\n\n- Add launcher artwork.\n' ; git status --short`
+    `gh pr create --repo scarf005/gc --base main --head fix/2-fastlane-icon --title "build: add Fastlane app icon" --body 'close #2\n\n- Add \`en-US/images/icon.png\` using the existing launcher artwork and white background.\n- Verified PNG format, 512×512 dimensions, and rendered appearance. App code is unchanged.\n\n<sup>PR opened by gpt-6.1-sol default on pi</sup>'; git status --short`
   const cases = [
     ["hasGhPrCreateInvocation", command, true],
     ["hasGhIssueCreateInvocation", command, false],
@@ -205,6 +205,32 @@ Deno.test("GitHub body trailer helpers handle gh create invocations", () => {
     true,
   )
   assertEquals(hasGhPrCreateInvocation({ command: "gh pr view" }), false)
+  for (const separator of [";", "&", "|", "(", ")"]) {
+    assertEquals(
+      hasGhPrCreateInvocation({
+        command: `gh --repo owner/repo ${separator} pr create`,
+      }),
+      false,
+    )
+    assertEquals(
+      hasGhIssueCreateInvocation({
+        command: `gh --repo owner/repo ${separator} issue create`,
+      }),
+      false,
+    )
+    assertEquals(
+      hasGitRebaseContinueInvocation({
+        command: `git rebase ${separator} --continue`,
+      }),
+      false,
+    )
+  }
+  assertEquals(
+    hasGhPrCreateInvocation({
+      command: "gh\t--repo owner/repo\tpr\tcreate --fill",
+    }),
+    true,
+  )
   assertEquals(
     hasGhIssueCreateInvocation({ command: "gh -R owner/repo issue create" }),
     true,

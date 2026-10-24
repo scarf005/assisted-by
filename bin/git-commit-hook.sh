@@ -15,22 +15,44 @@ _pi_assisted_by_is_git_rebase_continue() {
 }
 
 _pi_assisted_by_has_git_commit_message_source() {
+  local opts char
+
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      --)
+        return 1
+        ;;
       --amend|--no-edit|--fixup|--squash|--message|--file|--reuse-message|--reedit-message)
         return 0
         ;;
       --fixup=*|--squash=*|--message=*|--file=*|--reuse-message=*|--reedit-message=*)
         return 0
         ;;
-      -m|-F|-C|-c)
-        return 0
+      --author|--date|--cleanup|--template|--trailer|--pathspec-from-file)
+        [ "$#" -gt 1 ] && shift
         ;;
-      -m*|-F*|-C*|-c*)
-        return 0
+      --*)
         ;;
-      --)
-        return 1
+      -?*)
+        # Short options may be bundled (-qm, -am). Scan left to right: the first
+        # option that takes a value consumes the rest of the bundle.
+        opts="${1#-}"
+        while [ -n "$opts" ]; do
+          char="${opts%"${opts#?}"}"
+          opts="${opts#?}"
+          case "$char" in
+            m|F|C|c)
+              return 0
+              ;;
+            t)
+              [ -z "$opts" ] && [ "$#" -gt 1 ] && shift
+              break
+              ;;
+            u|S)
+              break
+              ;;
+          esac
+        done
         ;;
     esac
     shift

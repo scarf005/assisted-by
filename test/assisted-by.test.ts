@@ -781,3 +781,99 @@ Deno.test("Claude PreToolUse hook skips unrelated and already wrapped commands",
     undefined,
   )
 })
+
+const messageSourceCases: [string, string[], boolean][] = [
+  ["bare commit", [], false],
+  ["-m", ["-m", "msg"], true],
+  ["-m attached", ["-mmsg"], true],
+  ["-F", ["-F", "file"], true],
+  ["-C", ["-C", "HEAD"], true],
+  ["-c", ["-c", "HEAD"], true],
+  ["-qm bundle", ["-qm", "msg"], true],
+  ["-am bundle", ["-am", "msg"], true],
+  ["-aqm bundle", ["-aqm", "msg"], true],
+  ["-mq (q is the message)", ["-mq"], true],
+  ["-qF bundle", ["-qF", "file"], true],
+  ["-qC bundle", ["-qC", "HEAD"], true],
+  ["-qc bundle", ["-qc", "HEAD"], true],
+  ["flag then -m", ["-q", "-m", "msg"], true],
+  ["-m after pathspec", ["a.txt", "-m", "msg"], true],
+  ["--message", ["--message", "msg"], true],
+  ["--message=", ["--message=msg"], true],
+  ["--file=", ["--file=f"], true],
+  ["--reuse-message=", ["--reuse-message=HEAD"], true],
+  ["--reedit-message=", ["--reedit-message=HEAD"], true],
+  ["--fixup", ["--fixup", "HEAD"], true],
+  ["--fixup=", ["--fixup=HEAD"], true],
+  ["--squash=", ["--squash=HEAD"], true],
+  ["--amend", ["--amend"], true],
+  ["--no-edit", ["--amend", "--no-edit"], true],
+  ["-q only", ["-q"], false],
+  ["-a only", ["-a"], false],
+  ["-aq only", ["-aq"], false],
+  ["-v -e", ["-v", "-e"], false],
+  ["--verbose", ["--verbose"], false],
+  ["-S keyid containing m", ["-Sm"], false],
+  ["-um mode containing m", ["-um"], false],
+  ["-aSm keyid containing m", ["-aSm"], false],
+  ["-t attached value", ["-tmpl"], false],
+  ["-t value starting with -m", ["-t", "-m"], false],
+  ["-qt value", ["-qt", "-m"], false],
+  ["--template value", ["--template", "-m"], false],
+  ["--author value", ["--author", "-m"], false],
+  ["--trailer value", ["--trailer", "-m"], false],
+  ["--author= then -m", ["--author=A <a@b>", "-m", "msg"], true],
+  ["-m after --", ["--", "-m"], false],
+  ["--message after --", ["--", "--message=x"], false],
+  ["lone dash", ["-"], false],
+  ["unknown long option", ["--no-verify"], false],
+  ["-m inside long option value", ["--cleanup", "-m"], false],
+]
+
+for (const [name, args, expected] of messageSourceCases) {
+  Deno.test(`git commit message source: ${name}`, () => {
+    const result = spawnSync(
+      "bash",
+      [
+        "-c",
+        `source "$1"; shift; _pi_assisted_by_has_git_commit_message_source "$@"`,
+        "bash",
+        hookPath,
+        ...args,
+      ],
+      { encoding: "utf8" },
+    )
+    assertEquals(result.status === 0, expected)
+  })
+}
+
+Deno.test("git commit hook accepts bundled short options and adds trailers", () => {
+  const repo = mkdtempSync(repoPrefix)
+
+  try {
+    initializeRepo(repo)
+    run({
+      command:
+        "git config user.name test && git config user.email test@example.com",
+      cwd: repo,
+    })
+    const bootstrap = createHookBootstrap({
+      hookPath,
+      assistedBy: "Assisted-by: pi:gpt-5.4",
+    })
+
+    writeFileSync(join(repo, "a.txt"), "one\n")
+    run({ command: "git add a.txt", cwd: repo })
+    run({ command: `${bootstrap}\ngit commit -qm first`, cwd: repo })
+
+    writeFileSync(join(repo, "a.txt"), "two\n")
+    run({ command: `${bootstrap}\ngit commit -am second`, cwd: repo })
+
+    const log = run({ command: "git log --format=%B", cwd: repo })
+    assertEquals(log.includes("first"), true)
+    assertEquals(log.includes("second"), true)
+    assertEquals(log.split("Assisted-by: pi:gpt-5.4").length - 1, 2)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})

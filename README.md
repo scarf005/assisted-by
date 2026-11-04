@@ -7,7 +7,7 @@ Mechanical kernel-style AI attribution trailers for Pi, OpenCode, and Claude Cod
 - intercepts Pi `bash` tool calls that invoke `git commit`, `git rebase --continue`, `gh pr create`, or `gh issue create`
 - wraps Pi `!git commit`, `!git rebase --continue`, `!gh pr create`, and `!gh issue create` user bash commands the same way
 - wraps OpenCode bash/shell tool calls that invoke `git commit`, `git rebase --continue`, `gh pr create`, or `gh issue create`
-- wraps Claude Code `Bash` tool calls the same way, through a `PreToolUse` hook
+- adds the same attribution to Claude Code `Bash` tool calls through `PreToolUse` (commit trailers as literal git arguments) and `PostToolUse` (PR and issue bodies) hooks, without sourcing a shell wrapper
 - appends commit trailers with Git's built-in `--trailer` support
 - prevents AI-blocking GUI editors by rejecting `git commit` without a message source and running intercepted commits/rebase-continues with `GIT_EDITOR=:`
 - appends PR body attribution: `<sub>PR opened by MODEL THINKING on HARNESS</sub>`
@@ -75,7 +75,7 @@ Optional environment variables:
 
 ## Install for Claude Code
 
-Claude Code loads hooks from settings, so point a `PreToolUse` hook at the entrypoint:
+Claude Code loads hooks from settings, so point both a `PreToolUse` and a `PostToolUse` hook at the entrypoint:
 
 ```jsonc
 {
@@ -86,8 +86,20 @@ Claude Code loads hooks from settings, so point a `PreToolUse` hook at the entry
         "hooks": [
           {
             "type": "command",
-            "command": "deno run --allow-read --allow-env jsr:@scarf/assisted-by/claude",
+            "command": "deno run --allow-read --allow-env --allow-run=gh jsr:@scarf/assisted-by/claude",
             "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "deno run --allow-read --allow-env --allow-run=gh jsr:@scarf/assisted-by/claude",
+            "timeout": 30
           }
         ]
       }
@@ -96,9 +108,12 @@ Claude Code loads hooks from settings, so point a `PreToolUse` hook at the entry
 }
 ```
 
-For local development, swap the `command` for `deno run --allow-read --allow-env ./claude/assisted-by.ts`.
+For local development, swap the `command` for `deno run --allow-read --allow-env --allow-run=gh ./claude/assisted-by.ts`.
 
-The hook emits `updatedInput` **without** a `permissionDecision`, so it rewrites the command but never grants permission on your behalf; the normal permission flow still applies to the rewritten command.
+- `PreToolUse`: every `git [global options] commit` that starts a shell command gets `-c trailer.ifexists=addIfDifferent -c trailer.ifmissing=add` and `--trailer '…'` as literal arguments, for example `git -C repo commit -m x` becomes `git -c trailer.ifexists=addIfDifferent -c trailer.ifmissing=add -C repo commit --trailer 'Assisted-by: …' --trailer 'Co-authored-by: …' -m x`. The hook emits `updatedInput` **without** a `permissionDecision`, so it never grants permission on your behalf.
+- `PostToolUse`: after `gh pr create` or `gh issue create`, the hook reads the created URL from the tool output and runs `gh pr|issue edit <url> --body-file -` to append the attribution line once. `--dry-run` and `--web` are skipped. `CLAUDE_ASSISTED_BY_GH` overrides the `gh` binary.
+
+Claude Code does not get the sourced `git-commit-hook.sh` / `gh-pr-create-hook.sh` wrappers that Pi and OpenCode use. Claude Code worktree isolation (`EnterWorktree`) refuses commands that run `. <script>` because it cannot verify which git commands they run, so the wrappers would block every commit and PR in an isolated session. `git rebase --continue` is left alone because Claude Code already runs Bash with `GIT_EDITOR=true`.
 
 Optional environment variables:
 

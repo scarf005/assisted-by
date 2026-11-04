@@ -202,6 +202,67 @@ export const hasGitCommitInvocation = (
   { command }: CommandOptions = {},
 ): boolean => /(^|[\n;&|()\s])git\s+commit(\s|$)/m.test(`${command ?? ""}`)
 
+export type GitCommitRewriteOptions = {
+  command?: unknown
+  assistedBy?: string
+  coAuthoredBy?: string
+}
+export type GithubUrlOptions = { output?: unknown; kind?: "pull" | "issues" }
+
+const SHELL_WORD = String.raw`(?:'[^']*'|"[^"]*"|[^\s;&|()'"]+)`
+const GIT_GLOBAL_OPTION = String
+  .raw`(?:-[Cc]\s+${SHELL_WORD}|--(?:git-dir|work-tree|namespace|exec-path|config-env)(?:=|\s+)${SHELL_WORD}|--?[A-Za-z][\w-]*(?:=${SHELL_WORD})?)`
+
+/** `git [global options] commit` at the start of a shell command. */
+const GIT_COMMIT_INVOCATION = new RegExp(
+  String
+    .raw`(^|[\n;&|(])([ \t]*)git((?:[ \t]+${GIT_GLOBAL_OPTION})*)[ \t]+commit(?=\s|$)`,
+  "gm",
+)
+
+/**
+ * Add trailers to every `git commit` in a shell command as literal arguments.
+ *
+ * Unlike the sourced shell wrapper, this keeps the command made of plain git
+ * invocations, which harnesses that statically verify git commands (Claude Code
+ * worktree isolation) can still check. Global options such as `-C <path>` stay
+ * in place. Returns the command unchanged when it has no `git commit`.
+ *
+ * @type {(options?: GitCommitRewriteOptions) => string}
+ */
+export const rewriteGitCommitInvocations = (
+  { command, assistedBy = "", coAuthoredBy = "" }: GitCommitRewriteOptions = {},
+): string => {
+  const source = `${command ?? ""}`
+  if (!assistedBy) return source
+
+  const trailers = [assistedBy, coAuthoredBy]
+    .filter(Boolean)
+    .map((trailer) => ` --trailer ${quoteForShell(trailer)}`)
+    .join("")
+
+  return source.replace(
+    GIT_COMMIT_INVOCATION,
+    (_match, separator: string, indent: string, globals: string) =>
+      `${separator}${indent}git -c trailer.ifexists=addIfDifferent -c trailer.ifmissing=add${globals} commit${trailers}`,
+  )
+}
+
+/**
+ * Find GitHub PR or issue URLs printed by `gh pr create` / `gh issue create`.
+ *
+ * @type {(options?: GithubUrlOptions) => string[]}
+ */
+export const extractGithubUrls = (
+  { output, kind = "pull" }: GithubUrlOptions = {},
+): string[] => {
+  const pattern = new RegExp(
+    String.raw`https://github\.com/[^\s/]+/[^\s/]+/${kind}/[0-9]+`,
+    "g",
+  )
+  return [...new Set(`${output ?? ""}`.match(pattern) ?? [])]
+}
+
 /** @type {(options?: CommandOptions) => boolean} */
 export const hasGitRebaseContinueInvocation = (
   { command }: CommandOptions = {},

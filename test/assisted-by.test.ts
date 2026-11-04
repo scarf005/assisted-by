@@ -26,6 +26,7 @@ import {
   hasGitRebaseContinueInvocation,
   resolveCoAuthor,
   resolveTranscriptModel,
+  rewriteGitCommitInvocations,
 } from "../src/core/assisted-by.ts"
 
 const repoPrefix = join(tmpdir(), "assisted-by-")
@@ -55,6 +56,7 @@ const runClaudeHook = (
     "run",
     "--allow-read",
     "--allow-env",
+    "--allow-run",
     claudeHookPath,
   ], {
     input: JSON.stringify(input),
@@ -545,8 +547,18 @@ Deno.test("claude hook rewrites git commit with trailers and grants no permissio
       command,
       /Co-authored-by: Claude Opus 4\.8 <noreply@anthropic\.com>/,
     )
-    assertMatch(command, /git-commit-hook\.sh/)
-    assertMatch(command, /git commit -m "feat: x"$/)
+    assertEquals(command.includes(". '"), false)
+    assertEquals(command.includes("git-commit-hook.sh"), false)
+    assertEquals(
+      command.includes("--trailer 'Assisted-by: claude-code:claude-opus-4-8'"),
+      true,
+    )
+    assertEquals(
+      command.includes(
+        "--trailer 'Co-authored-by: Claude Opus 4.8 <noreply@anthropic.com>'",
+      ),
+      true,
+    )
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -604,23 +616,229 @@ Deno.test("claude hook ignores non-Bash tools, unrelated commands, and unusable 
   }
 })
 
-Deno.test("claude hook honors agent, model, and effort overrides for gh pr create", () => {
-  const stdout = runClaudeHook({
-    input: {
-      hook_event_name: "PreToolUse",
-      tool_name: "Bash",
-      tool_input: { command: "gh pr create --fill" },
-      transcript_path: "",
-    },
-    env: {
-      CLAUDE_ASSISTED_BY_MODEL: "claude-opus-4-8",
-      CLAUDE_ASSISTED_BY_AGENT: "claude-code-web",
-      CLAUDE_EFFORT: "high",
-    },
-  })
+const claudeModelEnv = {
+  CLAUDE_ASSISTED_BY_MODEL: "claude-opus-4-8",
+  CLAUDE_ASSISTED_BY_AGENT: "claude-code-web",
+  CLAUDE_EFFORT: "high",
+}
+const prTrailerLine =
+  "<sub>PR opened by claude-opus-4-8 high on claude-code-web</sub>"
 
-  const command = JSON.parse(stdout).hookSpecificOutput.updatedInput
-    .command as string
-  assertMatch(command, /PR opened by claude-opus-4-8 high on claude-code-web/)
-  assertMatch(command, /gh pr create --fill$/)
+/**
+ * Fake gh: logs args, prints $FAKE_GH_BODY for `view`, saves stdin for `edit`.
+ *
+ * @type {(dir: string) => { ghPath: string; logPath: string; stdinPath: string }}
+ */
+const writeFakeGh = (
+  dir: string,
+): { ghPath: string; logPath: string; stdinPath: string } => {
+  const ghPath = join(dir, "gh")
+  const logPath = join(dir, "gh.log")
+  const stdinPath = join(dir, "gh.stdin")
+  writeFileSync(
+    ghPath,
+    `#!/usr/bin/env bash
+echo "$*" >> '${logPath}'
+if [ "$2" = "view" ]; then
+  printf '%s\\n' "$FAKE_GH_BODY"
+elif [ "$2" = "edit" ]; then
+  cat > '${stdinPath}'
+fi
+`,
+  )
+  chmodSync(ghPath, 0o755)
+  return { ghPath, logPath, stdinPath }
+}
+
+/** @type {(options: { command: string; stdout: string }) => unknown} */
+const postToolUseInput = (
+  { command, stdout }: { command: string; stdout: string },
+): unknown => ({
+  hook_event_name: "PostToolUse",
+  tool_name: "Bash",
+  tool_input: { command },
+  tool_response: { stdout },
+})
+
+Deno.test("claude hook PostToolUse appends the PR trailer once through gh edit", () => {
+  const dir = mkdtempSync(repoPrefix)
+  try {
+    const { ghPath, logPath, stdinPath } = writeFakeGh(dir)
+    const url = "https://github.com/o/r/pull/3"
+    const input = postToolUseInput({
+      command: "gh pr create --fill",
+      stdout: `${url}\n`,
+    })
+    const env = {
+      ...claudeModelEnv,
+      CLAUDE_ASSISTED_BY_GH: ghPath,
+      FAKE_GH_BODY: "Existing body",
+    }
+
+    assertEquals(runClaudeHook({ input, env }), "")
+    assertMatch(
+      readFileSync(logPath, "utf8"),
+      new RegExp(`pr edit ${url} --body-file -`),
+    )
+    const body = readFileSync(stdinPath, "utf8")
+    assertEquals(body.startsWith("Existing body\n\n"), true)
+    assertEquals(body.endsWith(`${prTrailerLine}\n`), true)
+
+    rmSync(logPath)
+    runClaudeHook({
+      input,
+      env: { ...env, FAKE_GH_BODY: `Existing body\n\n${prTrailerLine}` },
+    })
+    assertEquals(readFileSync(logPath, "utf8").includes(" edit "), false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+Deno.test("claude hook PostToolUse edits the issue body after gh issue create", () => {
+  const dir = mkdtempSync(repoPrefix)
+  try {
+    const { ghPath, logPath, stdinPath } = writeFakeGh(dir)
+    runClaudeHook({
+      input: postToolUseInput({
+        command: "gh issue create --title t",
+        stdout: "https://github.com/o/r/issues/7\n",
+      }),
+      env: { ...claudeModelEnv, CLAUDE_ASSISTED_BY_GH: ghPath },
+    })
+
+    assertMatch(
+      readFileSync(logPath, "utf8"),
+      /issue edit https:\/\/github\.com\/o\/r\/issues\/7 --body-file -/,
+    )
+    assertEquals(
+      readFileSync(stdinPath, "utf8").includes(
+        "<sub>Issue opened by claude-opus-4-8 high on claude-code-web</sub>",
+      ),
+      true,
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+Deno.test("claude hook does not rewrite gh pr create before the call", () => {
+  assertEquals(
+    runClaudeHook({
+      input: {
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command: "gh pr create --fill" },
+      },
+      env: claudeModelEnv,
+    }),
+    "",
+  )
+})
+
+Deno.test("claude hook PostToolUse skips gh pr create --dry-run", () => {
+  const dir = mkdtempSync(repoPrefix)
+  try {
+    const { ghPath, logPath } = writeFakeGh(dir)
+    runClaudeHook({
+      input: postToolUseInput({
+        command: "gh pr create --dry-run",
+        stdout: "https://github.com/o/r/pull/3\n",
+      }),
+      env: { ...claudeModelEnv, CLAUDE_ASSISTED_BY_GH: ghPath },
+    })
+    assertEquals(existsSync(logPath), false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+Deno.test("claude hook rewrite adds real trailers once and survives amend", () => {
+  const repo = mkdtempSync(repoPrefix)
+  try {
+    run({ command: "git init -q", cwd: repo })
+    run({
+      command:
+        "git config user.name test && git config user.email test@example.com",
+      cwd: repo,
+    })
+
+    /** @type {(command: string) => string} */
+    const rewrite = (command: string): string =>
+      JSON.parse(runClaudeHook({
+        input: {
+          hook_event_name: "PreToolUse",
+          tool_name: "Bash",
+          tool_input: { command },
+        },
+        env: { CLAUDE_ASSISTED_BY_MODEL: "claude-opus-4-8" },
+      })).hookSpecificOutput.updatedInput.command
+
+    run({
+      command: rewrite(`git -C "${repo}" commit --allow-empty -m "feat: x"`),
+      cwd: tmpdir(),
+    })
+    const assisted = "Assisted-by: claude-code:claude-opus-4-8"
+    const coAuthor = "Co-authored-by: Claude Opus 4.8 <noreply@anthropic.com>"
+    const first = run({
+      command: "git log -1 --format='%(trailers)'",
+      cwd: repo,
+    })
+    assertEquals(first.includes(assisted), true)
+    assertEquals(first.includes(coAuthor), true)
+
+    run({
+      command: rewrite(
+        `git -C "${repo}" commit --amend --no-edit --allow-empty`,
+      ),
+      cwd: tmpdir(),
+    })
+    const amended = run({
+      command: "git log -1 --format='%(trailers)'",
+      cwd: repo,
+    })
+    assertEquals(amended.split(assisted).length - 1, 1)
+    assertEquals(amended.split(coAuthor).length - 1, 1)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+Deno.test("rewriteGitCommitInvocations rewrites only git commit invocations", () => {
+  const trailers = {
+    assistedBy: "Assisted-by: a:b",
+    coAuthoredBy: "Co-authored-by: C <c@x>",
+  }
+  const flags = "-c trailer.ifexists=addIfDifferent -c trailer.ifmissing=add"
+  const suffix =
+    " --trailer 'Assisted-by: a:b' --trailer 'Co-authored-by: C <c@x>'"
+
+  assertEquals(
+    rewriteGitCommitInvocations({
+      command: "cd x && git commit -m y",
+      ...trailers,
+    }),
+    `cd x && git ${flags} commit${suffix} -m y`,
+  )
+  assertEquals(
+    rewriteGitCommitInvocations({
+      command: "git -c user.name=x commit -m y; git log -1",
+      ...trailers,
+    }),
+    `git ${flags} -c user.name=x commit${suffix} -m y; git log -1`,
+  )
+  assertEquals(
+    rewriteGitCommitInvocations({
+      command: 'git -C "/tmp/a b" commit -m y',
+      ...trailers,
+    }),
+    `git ${flags} -C "/tmp/a b" commit${suffix} -m y`,
+  )
+  for (const command of ["git status", "git log -1", "echo git commit"]) {
+    assertEquals(rewriteGitCommitInvocations({ command, ...trailers }), command)
+  }
+  assertEquals(
+    rewriteGitCommitInvocations({ command: "git commit -m y", assistedBy: "" }),
+    "git commit -m y",
+  )
 })

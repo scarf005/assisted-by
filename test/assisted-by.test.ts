@@ -823,6 +823,83 @@ Deno.test("Claude PreToolUse hook skips unrelated and already wrapped commands",
   )
 })
 
+const claudeHookInput = (command: string) => ({
+  input: {
+    hook_event_name: "PreToolUse",
+    tool_name: "Bash",
+    tool_input: { command },
+  },
+  modelOverride: "claude-sonnet-4-5",
+  pluginRoot: "/plugin",
+})
+
+Deno.test("Claude PreToolUse hook attributes git commits without sourcing a wrapper", () => {
+  const repo = mkdtempSync(repoPrefix)
+
+  try {
+    initializeRepo(repo)
+    run({
+      command:
+        "git config user.name test && git config user.email test@example.com",
+      cwd: repo,
+    })
+    writeFileSync(join(repo, "a.txt"), "one\n")
+    const output = buildClaudePreToolUseOutput(
+      claudeHookInput("git add a.txt && git commit -q -m claude"),
+    )
+    const command = output?.hookSpecificOutput.updatedInput?.command ?? ""
+    assertEquals(command.includes("source"), false)
+    run({ command, cwd: repo })
+
+    const committed = run({ command: "git log -1 --pretty=%B", cwd: repo })
+    assertMatch(committed, /^Assisted-by: claude-code:claude-sonnet-4-5$/m)
+    assertMatch(
+      committed,
+      /^Co-authored-by: Claude Sonnet 4\.5 <noreply@anthropic\.com>$/m,
+    )
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+Deno.test("Claude PreToolUse hook disables the editor for rebase --continue inline", () => {
+  assertEquals(
+    buildClaudePreToolUseOutput(
+      claudeHookInput("git add a.txt && git rebase --continue"),
+    )?.hookSpecificOutput.updatedInput?.command,
+    "git add a.txt && GIT_EDITOR=: git rebase --continue",
+  )
+})
+
+Deno.test("Claude PreToolUse hook denies git commit without a message source", () => {
+  assertDeepEquals(
+    buildClaudePreToolUseOutput(claudeHookInput("git commit -q")),
+    {
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason:
+          "assisted-by: refusing git commit without a message source; use -m, -F, -C, -c, --fixup, --squash, --amend, or --no-edit explicitly.",
+      },
+    },
+  )
+})
+
+Deno.test("Claude PreToolUse hook keeps the sourced wrapper for gh and indirect git", () => {
+  for (
+    const command of [
+      "gh pr create --fill",
+      "printf x | xargs git commit -m t",
+    ]
+  ) {
+    assertMatch(
+      buildClaudePreToolUseOutput(claudeHookInput(command))?.hookSpecificOutput
+        .updatedInput?.command ?? "",
+      /^CLAUDE_ASSISTED_BY_MODEL='claude-sonnet-4-5' source '\/plugin\/bin\/claude-bash-hook\.sh' && /,
+    )
+  }
+})
+
 const messageSourceCases: [string, string[], boolean][] = [
   ["bare commit", [], false],
   ["-m", ["-m", "msg"], true],

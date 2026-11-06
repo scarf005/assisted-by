@@ -62,6 +62,26 @@ _pi_assisted_by_has_git_commit_message_source() {
 }
 
 git() {
+  local globals=()
+
+  # Keep global options (-C dir, -c k=v, --git-dir dir, ...) in front of the wrapped subcommand.
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      -C|-c|--git-dir|--work-tree|--namespace|--exec-path|--config-env)
+        [ "$#" -gt 1 ] || break
+        globals+=("$1" "$2")
+        shift 2
+        ;;
+      -p|-P|--*)
+        globals+=("$1")
+        shift
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
+
   if [ "$#" -gt 0 ] && [ "$1" = "commit" ]; then
     shift
 
@@ -71,25 +91,25 @@ git() {
     fi
 
     if [ -n "${PI_CO_AUTHORED_BY_TRAILER:-}" ]; then
-      GIT_EDITOR=: command git -c trailer.ifexists=addIfDifferent -c trailer.ifmissing=add commit \
+      GIT_EDITOR=: command git "${globals[@]}" -c trailer.ifexists=addIfDifferent -c trailer.ifmissing=add commit \
         --trailer "$PI_ASSISTED_BY_TRAILER" \
         --trailer "$PI_CO_AUTHORED_BY_TRAILER" \
         "$@"
       return $?
     fi
 
-    GIT_EDITOR=: command git -c trailer.ifexists=addIfDifferent -c trailer.ifmissing=add commit \
+    GIT_EDITOR=: command git "${globals[@]}" -c trailer.ifexists=addIfDifferent -c trailer.ifmissing=add commit \
       --trailer "$PI_ASSISTED_BY_TRAILER" \
       "$@"
     return $?
   fi
 
   if _pi_assisted_by_is_git_rebase_continue "$@"; then
-    GIT_EDITOR=: command git "$@"
+    GIT_EDITOR=: command git "${globals[@]}" "$@"
     return $?
   fi
 
-  command git "$@"
+  command git "${globals[@]}" "$@"
 }
 
 export -f _pi_assisted_by_is_git_rebase_continue

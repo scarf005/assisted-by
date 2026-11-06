@@ -146,7 +146,9 @@ export const detectSpecializedTools = (
 
 export const hasGitCommitInvocation = (
   { command }: CommandOptions = {},
-): boolean => /(^|[\n;&|()\s])git\s+commit(\s|$)/m.test(`${command ?? ""}`)
+): boolean =>
+  /(^|[\n;&|()\s])git(?:\s+(?:-[Cc]\s+[^\s;&|()]+|--(?:git-dir|work-tree|namespace|exec-path|config-env)\s+[^\s;&|()]+|--[^\s;&|()]+|-[pP]))*\s+commit(\s|$)/m
+    .test(`${command ?? ""}`)
 
 export const hasGitRebaseContinueInvocation = (
   { command }: CommandOptions = {},

@@ -73,7 +73,7 @@ claude plugin marketplace add /absolute/path/to/assisted-by
 claude plugin install assisted-by@assisted-by-local
 ```
 
-The `PreToolUse` hook reads the active model from the latest assistant turn of the session transcript and records `claude` when it is unavailable. It uses `claude-code` as the default agent label. `CLAUDE_ASSISTED_BY_MODEL`, `CLAUDE_ASSISTED_BY_AGENT`, and `CLAUDE_ASSISTED_BY_EXTRA_TOOLS` provide overrides. Keep `source` chained with `&&` when using `bin/claude-bash-hook.sh` explicitly: if attribution setup fails, the commit command must not run.
+The `PreToolUse` hook reads the active model from the latest assistant turn of the session transcript and records `claude` when it is unavailable. It uses `claude-code` as the default agent label. `CLAUDE_ASSISTED_BY_MODEL`, `CLAUDE_ASSISTED_BY_AGENT`, and `CLAUDE_ASSISTED_BY_EXTRA_TOOLS` provide overrides. The hook adds `--trailer` options to plain `git commit` and `git rebase --continue` calls in place, because Claude Code worktree isolation refuses commands that run `source`. It uses `bin/claude-bash-hook.sh` only for `gh` calls and git calls it cannot rewrite in place. Keep `source` chained with `&&` when using `bin/claude-bash-hook.sh` explicitly: if attribution setup fails, the commit command must not run.
 
 Set `attribution.commit` to an empty string in Claude Code settings so the built-in trailer does not duplicate this one.
 

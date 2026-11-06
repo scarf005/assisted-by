@@ -144,6 +144,35 @@ export const detectSpecializedTools = (
   return detected
 }
 
+// Mirror of _pi_assisted_by_has_git_commit_message_source in bin/git-commit-hook.sh.
+export const hasGitCommitMessageSource = (args: string[]): boolean => {
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]
+    if (arg === "--") return false
+    if (
+      /^--(?:amend|no-edit)$|^--(?:fixup|squash|message|file|reuse-message|reedit-message)(?:=|$)/
+        .test(arg)
+    ) return true
+    if (
+      /^--(?:author|date|cleanup|template|trailer|pathspec-from-file)$/.test(
+        arg,
+      )
+    ) {
+      index++
+      continue
+    }
+    if (arg.startsWith("--") || !/^-./.test(arg)) continue
+    // Short options may be bundled (-qm, -am); the first option that takes a value consumes the rest.
+    const opts = arg.slice(1)
+    for (const [position, char] of [...opts].entries()) {
+      if ("mFCc".includes(char)) return true
+      if (char === "t" && position === opts.length - 1) index++
+      if ("tuS".includes(char)) break
+    }
+  }
+  return false
+}
+
 export const hasGitCommitInvocation = (
   { command }: CommandOptions = {},
 ): boolean =>

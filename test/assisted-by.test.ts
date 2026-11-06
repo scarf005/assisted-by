@@ -22,6 +22,7 @@ import {
   hasGhIssueCreateInvocation,
   hasGhPrCreateInvocation,
   hasGitCommitInvocation,
+  hasGitCommitMessageSource,
   hasGitRebaseContinueInvocation,
   resolveCoAuthor,
 } from "../src/core/assisted-by.ts"
@@ -750,7 +751,7 @@ Deno.test("Claude PreToolUse hook wraps attributable Bash commands", () => {
   const input = {
     hook_event_name: "PreToolUse",
     tool_name: "Bash",
-    tool_input: { command: "git commit -m test" },
+    tool_input: { command: "gh pr create --fill" },
     transcript_path: "/tmp/t.jsonl",
   }
   const wrapped = (model: string) => ({
@@ -759,7 +760,7 @@ Deno.test("Claude PreToolUse hook wraps attributable Bash commands", () => {
       permissionDecision: "allow",
       updatedInput: {
         command:
-          `CLAUDE_ASSISTED_BY_MODEL='${model}' source '/plugin/bin/claude-bash-hook.sh' && git commit -m test`,
+          `CLAUDE_ASSISTED_BY_MODEL='${model}' source '/plugin/bin/claude-bash-hook.sh' && gh pr create --fill`,
       },
     },
   })
@@ -890,12 +891,51 @@ Deno.test("Claude PreToolUse hook keeps the sourced wrapper for gh and indirect 
     const command of [
       "gh pr create --fill",
       "printf x | xargs git commit -m t",
+      'git commit "$@"',
+      'git commit "${args[@]}"',
     ]
   ) {
     assertMatch(
       buildClaudePreToolUseOutput(claudeHookInput(command))?.hookSpecificOutput
         .updatedInput?.command ?? "",
       /^CLAUDE_ASSISTED_BY_MODEL='claude-sonnet-4-5' source '\/plugin\/bin\/claude-bash-hook\.sh' && /,
+    )
+  }
+})
+
+Deno.test("Claude PreToolUse hook leaves git commit text in heredocs and quotes alone", () => {
+  for (
+    const body of [
+      "cat > x.md <<'EOF'\ngit commit\nEOF",
+      "cat > x.md <<-EOF\ngit commit -m hi\n\tEOF",
+      'echo "a\ngit commit -m hi"',
+      'cat <<< "hi"',
+      "cat <<<foo",
+    ]
+  ) {
+    const command = `${body}\ngit commit -m real`
+    assertEquals(
+      buildClaudePreToolUseOutput(claudeHookInput(command))?.hookSpecificOutput
+        .updatedInput?.command,
+      `${body}\nGIT_EDITOR=: git -c trailer.ifexists=addIfDifferent -c trailer.ifmissing=add commit --trailer 'Assisted-by: claude-code:claude-sonnet-4-5' --trailer 'Co-authored-by: Claude Sonnet 4.5 <noreply@anthropic.com>' -m real`,
+    )
+  }
+})
+
+Deno.test("Claude PreToolUse hook rewrites commits with redirections and continuations inline", () => {
+  for (
+    const args of [
+      "-m x 2>&1",
+      "-m x > /dev/null",
+      "\\\n  -m x",
+      "-F - <<'EOF'\nsubject\nEOF",
+      `-m "$(cat <<'EOF'\nsubject\nEOF\n)"`,
+    ]
+  ) {
+    assertEquals(
+      buildClaudePreToolUseOutput(claudeHookInput(`git commit ${args}`))
+        ?.hookSpecificOutput.updatedInput?.command,
+      `GIT_EDITOR=: git -c trailer.ifexists=addIfDifferent -c trailer.ifmissing=add commit --trailer 'Assisted-by: claude-code:claude-sonnet-4-5' --trailer 'Co-authored-by: Claude Sonnet 4.5 <noreply@anthropic.com>' ${args}`,
     )
   }
 })
@@ -925,6 +965,7 @@ const messageSourceCases: [string, string[], boolean][] = [
   ["--fixup=", ["--fixup=HEAD"], true],
   ["--squash=", ["--squash=HEAD"], true],
   ["--amend", ["--amend"], true],
+  ["--amend= value", ["--amend=x"], false],
   ["--no-edit", ["--amend", "--no-edit"], true],
   ["-q only", ["-q"], false],
   ["-a only", ["-a"], false],
@@ -962,6 +1003,7 @@ for (const [name, args, expected] of messageSourceCases) {
       { encoding: "utf8" },
     )
     assertEquals(result.status === 0, expected)
+    assertEquals(hasGitCommitMessageSource(args), expected)
   })
 }
 

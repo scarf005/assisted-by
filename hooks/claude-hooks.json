@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "deno run --quiet --allow-env=CLAUDE_PLUGIN_ROOT,CLAUDE_ASSISTED_BY_MODEL --allow-read \"${CLAUDE_PLUGIN_ROOT}/bin/claude-pre-tool-use.ts\"",
+            "command": "deno run --quiet --allow-env=CLAUDE_PLUGIN_ROOT,CLAUDE_ASSISTED_BY_MODEL,CLAUDE_ASSISTED_BY_AGENT,CLAUDE_ASSISTED_BY_EXTRA_TOOLS --allow-read \"${CLAUDE_PLUGIN_ROOT}/bin/claude-pre-tool-use.ts\"",
             "timeout": 10
           }
         ]

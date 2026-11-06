@@ -686,6 +686,47 @@ Deno.test("Claude wrapper adds Claude Code attribution", () => {
   }
 })
 
+Deno.test("hasGitCommitInvocation matches commit after global git options", () => {
+  for (
+    const command of [
+      "git -C /tmp/wt commit -F msg.txt",
+      "git -c user.name=x commit -m t",
+      "git --git-dir /tmp/wt/.git commit -m t",
+      "git --no-pager commit -m t",
+    ]
+  ) assertEquals(hasGitCommitInvocation({ command }), true)
+  assertEquals(
+    hasGitCommitInvocation({ command: "git -C /tmp/wt status" }),
+    false,
+  )
+})
+
+Deno.test("Claude wrapper adds attribution to git -C commit in another directory", () => {
+  const repo = mkdtempSync(repoPrefix)
+  const other = mkdtempSync(repoPrefix)
+
+  try {
+    initializeRepo(repo)
+    run({
+      command:
+        "git config user.name test && git config user.email test@example.com",
+      cwd: repo,
+    })
+    writeFileSync(join(repo, "a.txt"), "one\n")
+    run({
+      command:
+        `CLAUDE_ASSISTED_BY_MODEL=claude-sonnet-4-5 source '${claudeHookPath}' && git -C '${repo}' add a.txt && git -C '${repo}' commit -q -m claude`,
+      cwd: other,
+    })
+
+    const committed = run({ command: "git log -1 --pretty=%B", cwd: repo })
+    assertMatch(committed, /^Assisted-by: claude-code:claude-sonnet-4-5$/m)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+    rmSync(other, { recursive: true, force: true })
+  }
+})
+
 Deno.test("findTranscriptModel returns the latest real assistant model", () => {
   const transcript = [
     JSON.stringify({

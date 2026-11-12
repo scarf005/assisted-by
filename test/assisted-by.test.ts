@@ -8,7 +8,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 
 import {
@@ -74,8 +74,23 @@ const assertNotEquals = (actual: unknown, expected: unknown): void => {
   }
 }
 
-const run = ({ command, cwd }: { command: string; cwd: string }): string => {
-  const result = spawnSync("bash", ["-lc", command], { cwd, encoding: "utf8" })
+const run = (
+  { command, cwd, shell = "bash" }: {
+    command: string
+    cwd: string
+    shell?: "bash" | "zsh"
+  },
+): string => {
+  // zsh -f skips user rc files, so deno must be put on PATH explicitly.
+  const args = shell === "zsh" ? ["-fc", command] : ["-lc", command]
+  const result = spawnSync(shell, args, {
+    cwd,
+    encoding: "utf8",
+    env: {
+      ...Deno.env.toObject(),
+      PATH: `${dirname(Deno.execPath())}:${Deno.env.get("PATH") ?? ""}`,
+    },
+  })
   if (result.status !== 0) {
     throw new Error(
       result.stderr || result.stdout || `command failed: ${command}`,
@@ -1037,3 +1052,131 @@ Deno.test("git commit hook accepts bundled short options and adds trailers", () 
     rmSync(repo, { recursive: true, force: true })
   }
 })
+
+const fakeGh = (kind: "pr" | "issue", number: number): string => {
+  const url = `https://github.com/owner/repo/${
+    kind === "pr" ? "pull" : "issues"
+  }/${number}`
+  return `#!/usr/bin/env bash
+if [ "$1" = "${kind}" ] && [ "$2" = "create" ]; then echo "${url}"; exit 0; fi
+if [ "$1" = "${kind}" ] && [ "$2" = "list" ]; then echo "${url}"; exit 0; fi
+if [ "$1" = "${kind}" ] && [ "$2" = "view" ]; then
+  for arg in "$@"; do
+    if [ "$arg" = "url" ]; then echo "${url}"; exit 0; fi
+    if [ "$arg" = "body" ]; then echo "Existing body"; exit 0; fi
+  done
+fi
+if [ "$1" = "${kind}" ] && [ "$2" = "edit" ]; then
+  while [ "$#" -gt 0 ]; do
+    if [ "$1" = "--body-file" ]; then
+      cp "$2" "$ASSISTED_BY_BODY_PATH"
+      echo "suppressed edit output"
+      exit 0
+    fi
+    shift
+  done
+fi
+exit 1
+`
+}
+
+Deno.test("Claude wrapper under zsh opens a PR with the trailer", () => {
+  const repo = mkdtempSync(repoPrefix)
+  const bodyPath = join(repo, "body.txt")
+
+  try {
+    writeFileSync(join(repo, "gh"), fakeGh("pr", 1))
+    chmodSync(join(repo, "gh"), 0o755)
+
+    const output = run({
+      shell: "zsh",
+      command:
+        `export PATH='${repo}':$PATH\nexport ASSISTED_BY_BODY_PATH='${bodyPath}'\nCLAUDE_ASSISTED_BY_MODEL=claude-sonnet-4-5 source '${claudeHookPath}' && gh pr create --title test`,
+      cwd: repo,
+    })
+
+    assertEquals(output, "https://github.com/owner/repo/pull/1")
+    assertEquals(
+      readFileSync(bodyPath, "utf8"),
+      "Existing body\n\n<sub>PR opened by claude-sonnet-4-5 on claude-code</sub>\n",
+    )
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+Deno.test("gh issue create hook under zsh appends issue trailer without changing visible output", () => {
+  const repo = mkdtempSync(repoPrefix)
+  const bodyPath = join(repo, "issue-body.txt")
+
+  try {
+    writeFileSync(join(repo, "gh"), fakeGh("issue", 2))
+    chmodSync(join(repo, "gh"), 0o755)
+
+    const bootstrap = createGhIssueCreateHookBootstrap({
+      hookPath: prCreateHookPath,
+      trailer: "<sub>Issue opened by claude-sonnet-4-5 high on pi</sub>",
+    })
+
+    const output = run({
+      shell: "zsh",
+      command:
+        `export PATH='${repo}':$PATH\nexport ASSISTED_BY_BODY_PATH='${bodyPath}'\n${bootstrap}\ngh issue create --title bug`,
+      cwd: repo,
+    })
+
+    assertEquals(output, "https://github.com/owner/repo/issues/2")
+    assertEquals(
+      readFileSync(bodyPath, "utf8"),
+      "Existing body\n\n<sub>Issue opened by claude-sonnet-4-5 high on pi</sub>\n",
+    )
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
+  }
+})
+
+for (
+  const [name, hook, envName, model, assistedBy] of [
+    [
+      "Claude",
+      claudeHookPath,
+      "CLAUDE_ASSISTED_BY_MODEL",
+      "claude-sonnet-4-5",
+      "claude-code:claude-sonnet-4-5",
+    ],
+    [
+      "Codex",
+      codexHookPath,
+      "CODEX_ASSISTED_BY_MODEL",
+      "gpt-6-astra",
+      "codex:gpt-6-astra",
+    ],
+  ] as const
+) {
+  Deno.test(`${name} wrapper under zsh adds commit attribution`, () => {
+    const repo = mkdtempSync(repoPrefix)
+
+    try {
+      initializeRepo(repo)
+      run({
+        command:
+          "git config user.name test && git config user.email test@example.com",
+        cwd: repo,
+      })
+      writeFileSync(join(repo, "a.txt"), "one\n")
+      const output = run({
+        shell: "zsh",
+        command:
+          `${envName}=${model} source '${hook}' && git add a.txt && git commit -q -m wrapped`,
+        cwd: repo,
+      })
+
+      assertEquals(output, "")
+      const committed = run({ command: "git log -1 --pretty=%B", cwd: repo })
+      assertMatch(committed, new RegExp(`^Assisted-by: ${assistedBy}$`, "m"))
+      assertMatch(committed, /^Co-authored-by: .+$/m)
+    } finally {
+      rmSync(repo, { recursive: true, force: true })
+    }
+  })
+}

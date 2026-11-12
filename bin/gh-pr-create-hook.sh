@@ -213,13 +213,13 @@ _pi_assisted_by_append_issue_trailer() {
 gh() {
   if _pi_assisted_by_is_gh_pr_create "$@"; then
     command gh "$@"
-    local status=$?
-    if [ "$status" -ne 0 ]; then
-      return "$status"
+    local exit_code=$?
+    if [ "$exit_code" -ne 0 ]; then
+      return "$exit_code"
     fi
 
     _pi_assisted_by_append_pr_trailer "$@"
-    return "$status"
+    return "$exit_code"
   fi
 
   if _pi_assisted_by_is_gh_issue_create "$@"; then
@@ -230,23 +230,26 @@ gh() {
     }
 
     command gh "$@" | tee "$output_file"
-    local status=${PIPESTATUS[0]}
-    if [ "$status" -eq 0 ]; then
+    local exit_code=${PIPESTATUS[0]:-${pipestatus[1]}}
+    if [ "$exit_code" -eq 0 ]; then
       local url=""
       url="$(_pi_assisted_by_extract_issue_url <"$output_file")"
       _pi_assisted_by_append_issue_trailer "$url" "$@"
     fi
 
     rm -f "$output_file"
-    return "$status"
+    return "$exit_code"
   fi
 
   command gh "$@"
 }
 
-export -f _pi_assisted_by_is_gh_pr_create
-export -f _pi_assisted_by_is_gh_issue_create
-export -f _pi_assisted_by_extract_issue_url
-export -f _pi_assisted_by_append_pr_trailer
-export -f _pi_assisted_by_append_issue_trailer
-export -f gh
+# zsh has no `export -f` and prints the function bodies instead.
+if [ -n "${BASH_VERSION:-}" ]; then
+  export -f _pi_assisted_by_is_gh_pr_create
+  export -f _pi_assisted_by_is_gh_issue_create
+  export -f _pi_assisted_by_extract_issue_url
+  export -f _pi_assisted_by_append_pr_trailer
+  export -f _pi_assisted_by_append_issue_trailer
+  export -f gh
+fi

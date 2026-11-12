@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 
-_claude_assisted_by_root="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+# BASH_SOURCE is bash-only; zsh exposes the sourced file as %x (eval keeps bash from parsing it).
+_claude_assisted_by_src=""
+if [ -n "${BASH_VERSION:-}" ]; then
+  _claude_assisted_by_src="${BASH_SOURCE[0]}"
+elif [ -n "${ZSH_VERSION:-}" ]; then
+  eval '_claude_assisted_by_src="${(%):-%x}"'
+fi
+_claude_assisted_by_root="$(cd -- "$(dirname -- "$_claude_assisted_by_src")/.." && pwd)"
 _claude_assisted_by_model="${CLAUDE_ASSISTED_BY_MODEL:-claude}"
 _claude_assisted_by_agent="${CLAUDE_ASSISTED_BY_AGENT:-claude-code}"
 _claude_assisted_by_tools="${CLAUDE_ASSISTED_BY_EXTRA_TOOLS:-}"
@@ -8,7 +15,7 @@ _claude_assisted_by_tools="${CLAUDE_ASSISTED_BY_EXTRA_TOOLS:-}"
 _claude_assisted_by_trailers="$(
   deno run --quiet --allow-read "$_claude_assisted_by_root/bin/assisted-by.ts" \
     "$_claude_assisted_by_model" "$_claude_assisted_by_agent" \
-    ${_claude_assisted_by_tools//,/ } 2>/dev/null
+    $(printf '%s' "$_claude_assisted_by_tools" | tr ',' ' ') 2>/dev/null
 )" || _claude_assisted_by_trailers=""
 
 if [ -z "$_claude_assisted_by_trailers" ]; then
@@ -25,6 +32,7 @@ export PI_ISSUE_OPENED_BY_TRAILER="<sub>Issue opened by $_claude_assisted_by_mod
 source "$_claude_assisted_by_root/bin/git-commit-hook.sh"
 source "$_claude_assisted_by_root/bin/gh-pr-create-hook.sh"
 
+unset _claude_assisted_by_src
 unset _claude_assisted_by_root
 unset _claude_assisted_by_model
 unset _claude_assisted_by_agent

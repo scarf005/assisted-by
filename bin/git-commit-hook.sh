@@ -112,6 +112,9 @@ git() {
   command git "${globals[@]}" "$@"
 }
 
-export -f _pi_assisted_by_is_git_rebase_continue
-export -f _pi_assisted_by_has_git_commit_message_source
-export -f git
+# zsh has no `export -f` and prints the function bodies instead.
+if [ -n "${BASH_VERSION:-}" ]; then
+  export -f _pi_assisted_by_is_git_rebase_continue
+  export -f _pi_assisted_by_has_git_commit_message_source
+  export -f git
+fi

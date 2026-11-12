@@ -7,12 +7,14 @@ import {
   type Trailers,
 } from "../src/core/assisted-by.ts"
 import { isRecord, needsAttribution } from "./codex-pre-tool-use.ts"
+import { resolve } from "node:path"
 
 export type ClaudePreToolUseInput = {
   hook_event_name?: unknown
   tool_input?: unknown
   tool_name?: unknown
   transcript_path?: unknown
+  cwd?: unknown
 }
 export type ClaudePreToolUseOptions = {
   input?: ClaudePreToolUseInput
@@ -21,6 +23,8 @@ export type ClaudePreToolUseOptions = {
   tools?: string[]
   pluginRoot?: string
   readTranscript?: (path: string) => string
+  readFile?: (path: string) => string | undefined
+  runGit?: (args: string[], cwd: string) => string | undefined
 }
 export type ClaudePreToolUseOutput = {
   hookSpecificOutput: {
@@ -152,10 +156,184 @@ const simpleCommandWords = (text: string): Words | undefined => {
   return { words, dynamic }
 }
 
+type MessageContext = {
+  cwd: string
+  readFile: (path: string) => string | undefined
+  runGit: (args: string[], cwd: string) => string | undefined
+}
+type CommitArgs = {
+  messages: string[]
+  file?: string
+  ref?: string
+  amend: boolean
+  fixup: boolean
+}
+
+export const readFileOrUndefined = (path: string): string | undefined => {
+  try {
+    return Deno.readTextFileSync(path)
+  } catch {
+    return undefined
+  }
+}
+
+export const runGitOutput = (
+  args: string[],
+  cwd: string,
+): string | undefined => {
+  try {
+    const { success, stdout } = new Deno.Command("git", {
+      args,
+      cwd,
+      stdin: "null",
+      stdout: "piped",
+      stderr: "null",
+    }).outputSync()
+    return success ? new TextDecoder().decode(stdout) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+const shortValueOptions: Record<string, keyof CommitArgs> = {
+  m: "messages",
+  F: "file",
+  C: "ref",
+  c: "ref",
+}
+const longValueOptions: Record<string, keyof CommitArgs> = {
+  "--message": "messages",
+  "--file": "file",
+  "--reuse-message": "ref",
+  "--reedit-message": "ref",
+}
+
+// Collect the options that decide the commit message, mirroring hasGitCommitMessageSource.
+const parseCommitArgs = (words: string[]): CommitArgs => {
+  const parsed: CommitArgs = { messages: [], amend: false, fixup: false }
+  const set = (key: keyof CommitArgs, value: string | undefined) => {
+    if (value === undefined) return
+    if (key === "messages") parsed.messages = [...parsed.messages, value]
+    else if (key === "file" || key === "ref") parsed[key] = value
+  }
+  for (let index = 0; index < words.length; index++) {
+    const arg = words[index]
+    if (arg === "--") break
+    if (arg === "--amend") parsed.amend = true
+    else if (/^--(?:fixup|squash)(?:=|$)/.test(arg)) {
+      parsed.fixup = true
+      if (!arg.includes("=")) index++
+    } else if (arg in longValueOptions) {
+      set(longValueOptions[arg], words[++index])
+    } else if (/^--[^=]+=/.test(arg)) {
+      const [name] = arg.split("=", 1)
+      if (name in longValueOptions) {
+        set(longValueOptions[name], arg.slice(name.length + 1))
+      }
+    } else if (
+      /^--(?:author|date|cleanup|template|trailer|pathspec-from-file)$/.test(
+        arg,
+      )
+    ) index++
+    else if (!arg.startsWith("--") && /^-./.test(arg)) {
+      // Short options may be bundled (-qm, -am); the first option that takes a value consumes the rest.
+      const opts = arg.slice(1)
+      for (const [position, char] of [...opts].entries()) {
+        const key = shortValueOptions[char]
+        if (key) {
+          set(key, opts.slice(position + 1) || words[++index])
+          break
+        }
+        if (char === "t" && position === opts.length - 1) index++
+        if ("tuS".includes(char)) break
+      }
+    }
+  }
+  return parsed
+}
+
+const quotedHeredoc = String.raw`<<-?\s*(['"])([\w.-]+)\1`
+
+// `-m "$(cat <<'EOF' ... EOF)"` is the only expansion whose text is known before the shell runs.
+const literalMessage = (value: string): string | undefined => {
+  if (!/[$`]/.test(value)) return value
+  const heredoc = new RegExp(
+    String.raw`^\$\(cat ${quotedHeredoc}\n([\s\S]*?)\n\2\n?\)$`,
+  ).exec(value)
+  return heredoc?.[3]
+}
+
+// Body of a quoted heredoc fed to `-F -` on the commit's own line.
+const stdinHeredoc = (rest: string): string | undefined =>
+  new RegExp(String.raw`^[^\n]*?${quotedHeredoc}[^\n]*\n([\s\S]*?)\n\2(?:\n|$)`)
+    .exec(rest)?.[3]
+
+// Resolve the message git will commit when it is knowable before the command runs.
+const readCommitMessage = (
+  { words, globals, rest, isFirstCommand, cwd, readFile, runGit }:
+    & MessageContext
+    & {
+      words: string[]
+      globals: string[]
+      rest: string
+      isFirstCommand: boolean
+    },
+): string | undefined => {
+  const args = parseCommitArgs(words)
+  if (args.fixup) return undefined
+  if (args.messages.length > 0) {
+    const messages = args.messages.map(literalMessage)
+    return messages.every((message) => message !== undefined)
+      ? messages.join("\n\n")
+      : undefined
+  }
+  if (args.file === "-") return stdinHeredoc(rest)
+
+  // Files, refs, and HEAD may be changed by earlier commands in the same Bash call.
+  if (!isFirstCommand || !cwd) return undefined
+  const dirOption = globals.flatMap((word, index) =>
+    globals[index - 1] === "-C" ? [word] : []
+  )
+  const otherGlobals = globals.filter((word, index) =>
+    word !== "-C" && globals[index - 1] !== "-C"
+  )
+  if ([...dirOption, ...otherGlobals].some((word) => /[$`]/.test(word))) {
+    return undefined
+  }
+  const dir = resolve(cwd, ...dirOption)
+  if (args.file !== undefined) {
+    return /[$`]/.test(args.file)
+      ? undefined
+      : readFile(resolve(dir, args.file))
+  }
+  const ref = args.ref ?? (args.amend ? "HEAD" : undefined)
+  if (ref === undefined || /[$`]/.test(ref)) return undefined
+  return runGit([...otherGlobals, "log", "-1", "--format=%B", ref], dir)
+}
+
+// git compares trailer keys case-insensitively and values after trimming.
+const splitTrailer = (line: string) => {
+  const separator = line.indexOf(":")
+  return separator < 1 ? undefined : {
+    key: line.slice(0, separator).trim().toLowerCase(),
+    value: line.slice(separator + 1).trim(),
+  }
+}
+
+const hasTrailer = (message: string, trailer: string): boolean => {
+  const wanted = splitTrailer(trailer)
+  const block = message.trim().split(/\n[ \t]*\n/).at(-1) ?? ""
+  return block.split("\n").some((line) => {
+    const found = splitTrailer(line)
+    return found?.key === wanted?.key && found?.value === wanted?.value
+  })
+}
+
 // Rewrite git commit and rebase --continue in place, so the command stays a plain git call.
 const inlineGitAttribution = (
   command: string,
   { assistedBy, coAuthoredBy }: Trailers,
+  context: MessageContext,
 ): InlineResult => {
   const code = commandText(command)
   const commits = commandMatches(commitAt(commandStart), command, code)
@@ -181,17 +359,32 @@ const inlineGitAttribution = (
   ) return undefined
   if (missing.length > 0) return { denied: missingMessageSource }
 
-  const trailers = [assistedBy, coAuthoredBy]
-    .filter(Boolean)
-    .map((trailer) => ` --trailer ${quoteForShell(trailer)}`)
-    .join("")
+  // Worktree isolation refuses `git -c`, so drop trailers the message already has instead of setting trailer.ifexists.
+  const trailersFor = (match: RegExpMatchArray, words: string[]) => {
+    const message = readCommitMessage({
+      words,
+      globals: simpleCommandWords(match[3])?.words ?? [],
+      rest: command.slice((match.index ?? 0) + match[0].length),
+      isFirstCommand: command.slice(0, gitIndex(match)).trim() === "",
+      ...context,
+    })
+    return [assistedBy, coAuthoredBy]
+      .filter((trailer) =>
+        trailer && !(message !== undefined && hasTrailer(message, trailer))
+      )
+      .map((trailer) => ` --trailer ${quoteForShell(trailer)}`)
+      .join("")
+  }
   // Rewrite from the end so earlier match offsets stay valid.
   const edits = [
-    ...commits.map((match) => ({
-      match,
-      text: (globals: string) =>
-        `GIT_EDITOR=: git${globals} -c trailer.ifexists=addIfDifferent -c trailer.ifmissing=add commit${trailers}`,
-    })),
+    ...commits.map((match, index) => {
+      const trailers = trailersFor(match, args[index]?.words ?? [])
+      return {
+        match,
+        text: (globals: string) =>
+          `GIT_EDITOR=: git${globals} commit${trailers}`,
+      }
+    }),
     ...rebases.map((match) => ({
       match,
       text: (rest: string) => `GIT_EDITOR=: git${rest}`,
@@ -243,6 +436,8 @@ export const buildClaudePreToolUseOutput = (
     tools = [],
     pluginRoot = "",
     readTranscript = () => "",
+    readFile = () => undefined,
+    runGit = () => undefined,
   }: ClaudePreToolUseOptions = {},
 ): ClaudePreToolUseOutput | undefined => {
   if (
@@ -262,6 +457,11 @@ export const buildClaudePreToolUseOutput = (
   const inline = inlineGitAttribution(
     command,
     buildTrailers({ agent, model, tools }),
+    {
+      cwd: typeof input.cwd === "string" ? input.cwd : "",
+      readFile,
+      runGit,
+    },
   )
   if (inline && "denied" in inline) {
     return {
@@ -300,6 +500,8 @@ if (import.meta.main) {
       ),
       pluginRoot: Deno.env.get("CLAUDE_PLUGIN_ROOT") ?? "",
       readTranscript: (path) => Deno.readTextFileSync(path),
+      readFile: readFileOrUndefined,
+      runGit: runGitOutput,
     })
     if (output) console.log(JSON.stringify(output))
   } catch {

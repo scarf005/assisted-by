@@ -29,6 +29,8 @@ import {
 import {
   buildClaudePreToolUseOutput,
   findTranscriptModel,
+  readFileOrUndefined,
+  runGitOutput,
 } from "../bin/claude-pre-tool-use.ts"
 import { buildCodexPreToolUseOutput } from "../bin/codex-pre-tool-use.ts"
 
@@ -839,11 +841,15 @@ Deno.test("Claude PreToolUse hook skips unrelated and already wrapped commands",
   )
 })
 
-const claudeHookInput = (command: string) => ({
+const claudeHookInput = (
+  command: string,
+  extraInput: Record<string, unknown> = {},
+) => ({
   input: {
     hook_event_name: "PreToolUse",
     tool_name: "Bash",
     tool_input: { command },
+    ...extraInput,
   },
   modelOverride: "claude-sonnet-4-5",
   pluginRoot: "/plugin",
@@ -932,7 +938,7 @@ Deno.test("Claude PreToolUse hook leaves git commit text in heredocs and quotes 
     assertEquals(
       buildClaudePreToolUseOutput(claudeHookInput(command))?.hookSpecificOutput
         .updatedInput?.command,
-      `${body}\nGIT_EDITOR=: git -c trailer.ifexists=addIfDifferent -c trailer.ifmissing=add commit --trailer 'Assisted-by: claude-code:claude-sonnet-4-5' --trailer 'Co-authored-by: Claude Sonnet 4.5 <noreply@anthropic.com>' -m real`,
+      `${body}\nGIT_EDITOR=: git commit --trailer 'Assisted-by: claude-code:claude-sonnet-4-5' --trailer 'Co-authored-by: Claude Sonnet 4.5 <noreply@anthropic.com>' -m real`,
     )
   }
 })
@@ -950,8 +956,202 @@ Deno.test("Claude PreToolUse hook rewrites commits with redirections and continu
     assertEquals(
       buildClaudePreToolUseOutput(claudeHookInput(`git commit ${args}`))
         ?.hookSpecificOutput.updatedInput?.command,
-      `GIT_EDITOR=: git -c trailer.ifexists=addIfDifferent -c trailer.ifmissing=add commit --trailer 'Assisted-by: claude-code:claude-sonnet-4-5' --trailer 'Co-authored-by: Claude Sonnet 4.5 <noreply@anthropic.com>' ${args}`,
+      `GIT_EDITOR=: git commit --trailer 'Assisted-by: claude-code:claude-sonnet-4-5' --trailer 'Co-authored-by: Claude Sonnet 4.5 <noreply@anthropic.com>' ${args}`,
     )
+  }
+})
+
+const assistedByLine = "Assisted-by: claude-code:claude-sonnet-4-5"
+const coAuthoredByLine =
+  "Co-authored-by: Claude Sonnet 4.5 <noreply@anthropic.com>"
+const bothTrailers = `${assistedByLine}\n${coAuthoredByLine}`
+const assistedByFlag = `--trailer '${assistedByLine}'`
+const coAuthoredByFlag = `--trailer '${coAuthoredByLine}'`
+const bothFlags = `${assistedByFlag} ${coAuthoredByFlag}`
+
+const hookCommand = (
+  command: string,
+  extraInput: Record<string, unknown> = {},
+  deps: {
+    readFile?: (path: string) => string | undefined
+    runGit?: (args: string[], cwd: string) => string | undefined
+  } = {},
+): string =>
+  buildClaudePreToolUseOutput({
+    ...claudeHookInput(command, extraInput),
+    ...deps,
+  })?.hookSpecificOutput.updatedInput?.command ?? ""
+
+Deno.test("Claude PreToolUse hook drops --trailer already present in the -m message", () => {
+  assertEquals(
+    hookCommand(`git commit -m "$(printf x)"`, {}, {}).includes("--trailer"),
+    true,
+  )
+  assertEquals(
+    hookCommand(`git commit -m 'subject' -m '${bothTrailers}'`),
+    `GIT_EDITOR=: git commit -m 'subject' -m '${bothTrailers}'`,
+  )
+  assertEquals(
+    hookCommand(
+      `git commit -m 'subject' -m 'Co-Authored-By:   Claude Sonnet 4.5 <noreply@anthropic.com>  '`,
+    ),
+    `GIT_EDITOR=: git commit ${assistedByFlag} -m 'subject' -m 'Co-Authored-By:   Claude Sonnet 4.5 <noreply@anthropic.com>  '`,
+  )
+})
+
+Deno.test("Claude PreToolUse hook reads the amended HEAD message from the git -C directory", () => {
+  const calls: { args: string[]; cwd: string }[] = []
+  const runGit = (args: string[], cwd: string) => {
+    calls.push({ args, cwd })
+    return `subject\n\n${bothTrailers}\n`
+  }
+  assertEquals(
+    hookCommand("git commit --amend --no-edit", { cwd: "/work/repo" }, {
+      runGit,
+    }),
+    "GIT_EDITOR=: git commit --amend --no-edit",
+  )
+  assertEquals(
+    hookCommand("git -C sub commit --amend --no-edit", { cwd: "/work/repo" }, {
+      runGit,
+    }),
+    "GIT_EDITOR=: git -C sub commit --amend --no-edit",
+  )
+  assertDeepEquals(calls, [
+    { args: ["log", "-1", "--format=%B", "HEAD"], cwd: "/work/repo" },
+    { args: ["log", "-1", "--format=%B", "HEAD"], cwd: "/work/repo/sub" },
+  ])
+})
+
+Deno.test("Claude PreToolUse hook keeps trailers when the amended message lacks them", () => {
+  assertEquals(
+    hookCommand("git commit --amend --no-edit", { cwd: "/work/repo" }, {
+      runGit: () => "subject\n",
+    }),
+    `GIT_EDITOR=: git commit ${bothFlags} --amend --no-edit`,
+  )
+  assertEquals(
+    hookCommand("git commit --amend --no-edit", { cwd: "/work/repo" }, {
+      runGit: () => undefined,
+    }),
+    `GIT_EDITOR=: git commit ${bothFlags} --amend --no-edit`,
+  )
+})
+
+Deno.test("Claude PreToolUse hook looks up the reused commit message by ref", () => {
+  const calls: { args: string[]; cwd: string }[] = []
+  assertEquals(
+    hookCommand("git commit -C abc123", { cwd: "/work/repo" }, {
+      runGit: (args, cwd) => {
+        calls.push({ args, cwd })
+        return `subject\n\n${bothTrailers}\n`
+      },
+    }),
+    "GIT_EDITOR=: git commit -C abc123",
+  )
+  assertDeepEquals(calls, [
+    { args: ["log", "-1", "--format=%B", "abc123"], cwd: "/work/repo" },
+  ])
+})
+
+Deno.test("Claude PreToolUse hook reads -F files resolved against cwd and git -C", () => {
+  const paths: string[] = []
+  const readFile = (path: string) => {
+    paths.push(path)
+    return `subject\n\n${bothTrailers}\n`
+  }
+  assertEquals(
+    hookCommand("git commit -F msg.txt", { cwd: "/work/repo" }, { readFile }),
+    "GIT_EDITOR=: git commit -F msg.txt",
+  )
+  assertEquals(
+    hookCommand("git -C sub commit --file=msg.txt", { cwd: "/work/repo" }, {
+      readFile,
+    }),
+    "GIT_EDITOR=: git -C sub commit --file=msg.txt",
+  )
+  assertEquals(
+    hookCommand("git commit -F /abs/msg.txt", { cwd: "/work/repo" }, {
+      readFile,
+    }),
+    "GIT_EDITOR=: git commit -F /abs/msg.txt",
+  )
+  assertDeepEquals(paths, [
+    "/work/repo/msg.txt",
+    "/work/repo/sub/msg.txt",
+    "/abs/msg.txt",
+  ])
+})
+
+Deno.test("Claude PreToolUse hook drops trailers already inside quoted heredoc messages", () => {
+  const body = `subject\n\n${bothTrailers}`
+  assertEquals(
+    hookCommand(`git commit -F - <<'EOF'\n${body}\nEOF`),
+    `GIT_EDITOR=: git commit -F - <<'EOF'\n${body}\nEOF`,
+  )
+  assertEquals(
+    hookCommand(`git commit -m "$(cat <<'EOF'\n${body}\nEOF\n)"`),
+    `GIT_EDITOR=: git commit -m "$(cat <<'EOF'\n${body}\nEOF\n)"`,
+  )
+})
+
+Deno.test("Claude PreToolUse hook keeps both trailers for an unknown dynamic message", () => {
+  assertEquals(
+    hookCommand('git commit -m "$msg"', { cwd: "/work/repo" }, {
+      runGit: () => `subject\n\n${bothTrailers}\n`,
+    }),
+    `GIT_EDITOR=: git commit ${bothFlags} -m "$msg"`,
+  )
+})
+
+Deno.test("Claude PreToolUse hook does not read HEAD after an earlier git command in the same Bash command", () => {
+  let called = false
+  assertEquals(
+    hookCommand(
+      "git commit -m a && git commit --amend --no-edit",
+      { cwd: "/work/repo" },
+      {
+        runGit: () => {
+          called = true
+          return `subject\n\n${bothTrailers}\n`
+        },
+      },
+    ),
+    `GIT_EDITOR=: git commit ${bothFlags} -m a && GIT_EDITOR=: git commit ${bothFlags} --amend --no-edit`,
+  )
+  assertEquals(called, false)
+})
+
+Deno.test("Claude PreToolUse hook amend leaves each trailer exactly once in a real repo", () => {
+  const repo = mkdtempSync(repoPrefix)
+
+  try {
+    initializeRepo(repo)
+    run({
+      command:
+        "git config user.name test && git config user.email test@example.com",
+      cwd: repo,
+    })
+    writeFileSync(join(repo, "a.txt"), "one\n")
+    const deps = { readFile: readFileOrUndefined, runGit: runGitOutput }
+    const hooked = (command: string) =>
+      hookCommand(command, { cwd: repo }, deps)
+
+    const first = hooked("git add a.txt && git commit -q -m claude")
+    run({ command: first, cwd: repo })
+    const amend = hooked("git commit -q --amend --no-edit")
+    assertEquals(amend.includes("--trailer"), false)
+    assertEquals(
+      /\sgit\s+-c\s|\s-c\s+trailer\./.test(` ${first} ${amend}`),
+      false,
+    )
+    run({ command: amend, cwd: repo })
+
+    const committed = run({ command: "git log -1 --pretty=%B", cwd: repo })
+    assertEquals(committed.split(assistedByLine).length - 1, 1)
+    assertEquals(committed.split(coAuthoredByLine).length - 1, 1)
+  } finally {
+    rmSync(repo, { recursive: true, force: true })
   }
 })
 

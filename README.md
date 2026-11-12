@@ -1,40 +1,54 @@
 # @scarf/assisted-by
 
-Mechanical kernel-style AI attribution trailers for Claude Code, Codex, Pi, and OpenCode `git commit`, `git rebase --continue`, `gh pr create`, and `gh issue create` calls.
+Adds Linux kernel style AI attribution to commits, pull requests, and issues that Claude Code, Codex, Pi, and OpenCode create.
 
 ## What it does
 
-- intercepts Pi `bash` tool calls that invoke `git commit`, `git rebase --continue`, `gh pr create`, or `gh issue create`
-- wraps Pi `!git commit`, `!git rebase --continue`, `!gh pr create`, and `!gh issue create` user bash commands the same way
-- wraps OpenCode bash/shell tool calls that invoke `git commit`, `git rebase --continue`, `gh pr create`, or `gh issue create`
-- automatically wraps the same Codex workflows through an installed plugin hook
-- automatically wraps the same Claude Code workflows through an installed plugin hook
-- appends commit trailers with Git's built-in `--trailer` support
-- prevents AI-blocking GUI editors by rejecting `git commit` without a message source and running intercepted commits/rebase-continues with `GIT_EDITOR=:`
-- appends PR body attribution: `<sub>PR opened by MODEL THINKING on HARNESS</sub>`
-- appends issue body attribution: `<sub>Issue opened by MODEL THINKING on HARNESS</sub>`
-- de-duplicates trailers on `--amend` via `trailer.ifexists=addIfDifferent`
-- emits kernel-style attribution:
-  - `Assisted-by: AGENT:MODEL [TOOL ...]`
-  - `Co-authored-by: ...` when the model maps to a known bot identity
+The hooks find these commands in the bash calls of the agent:
 
-Basic tools are not listed. Specialized tools are collected mechanically from bash commands for:
+- `git commit`
+- `git rebase --continue`
+- `gh pr create`
+- `gh issue create`
+
+For each command, the hook adds the attribution. The model does not write the attribution.
+
+- Commits get trailers through the `--trailer` option of Git:
+  - `Assisted-by: AGENT:MODEL [TOOL ...]`
+  - `Co-authored-by: ...` when the model has a known bot identity
+- Pull request bodies get `<sub>PR opened by MODEL THINKING on HARNESS</sub>`.
+- Issue bodies get `<sub>Issue opened by MODEL THINKING on HARNESS</sub>`.
+
+The hook also does these steps:
+
+- It refuses `git commit` without a message source, because a GUI editor stops the agent. Message sources are `-m`, `-F`, `-C`, `-c`, `--fixup`, `--squash`, `--amend`, and `--no-edit`.
+- It runs commits and `git rebase --continue` with `GIT_EDITOR=:`, so no editor opens.
+- It does not add a trailer two times on `--amend`. It uses `trailer.ifexists=addIfDifferent` for this.
+
+The `TOOL` list does not include basic tools. The hook reads the bash commands and adds only these analysis tools:
 
 - `coccinelle` / `spatch`
 - `sparse`
 - `smatch`
 - `clang-tidy`
 
+Where each harness uses the hook:
+
+- Pi: `bash` tool calls, and `!` user bash commands
+- OpenCode: bash and shell tool calls
+- Codex: Bash tool calls, through a plugin hook
+- Claude Code: Bash tool calls, through a plugin hook
+
 ## Install for Pi
 
-From JSR's npm compatibility registry:
+Install from the npm registry of JSR:
 
 ```bash
 npm config set @jsr:registry https://npm.jsr.io
 pi install npm:@jsr/scarf__assisted-by
 ```
 
-From the current directory:
+Install from the current directory:
 
 ```bash
 pi install .
@@ -42,44 +56,69 @@ pi install .
 
 Optional environment variables:
 
-- `PI_ASSISTED_BY_AGENT`: override the agent name in `Assisted-by:`. Default: `pi`
-- `PI_ASSISTED_BY_EXTRA_TOOLS`: extra space- or comma-separated specialized tool labels to append
+- `PI_ASSISTED_BY_AGENT`: the agent name in `Assisted-by:`. The default is `pi`.
+- `PI_ASSISTED_BY_EXTRA_TOOLS`: more tool labels to add, separated by spaces or commas.
 
 ## Install for Codex
 
-This repository is also a Codex plugin. Add the repository as a local marketplace and install it:
+This repository is a Codex plugin. Add the repository as a local marketplace, then install the plugin:
 
 ```bash
 codex plugin marketplace add /absolute/path/to/assisted-by
 codex plugin add assisted-by@assisted-by-local
 ```
 
-Start a new Codex conversation, open `/hooks`, and trust the `assisted-by` plugin hook. Codex requires this review whenever a non-managed hook is installed or changed.
+Start a new Codex conversation. Open `/hooks` and trust the `assisted-by` plugin hook. Codex asks for this review each time you install or change a hook that is not managed.
 
-The hook automatically intercepts supported Codex Bash commands and uses the active model identifier. The installed plugin also provides the underlying wrapper for explicit use or troubleshooting:
+The hook changes the supported Bash commands and records the active model. You can also use the wrapper script directly, for example to find a problem:
 
 ```bash
 source /absolute/path/to/assisted-by/bin/codex-bash-hook.sh && git commit -m "subject"
 ```
 
-The Codex wrapper uses `CODEX_ASSISTED_BY_MODEL`, then `CODEX_MODEL`, and records `codex` only when neither model identifier is available. It always uses `codex` as the default agent label, so Codex work is not mislabeled as Pi work. `CODEX_ASSISTED_BY_AGENT` and `CODEX_ASSISTED_BY_EXTRA_TOOLS` provide the matching overrides. Keep `source` chained with `&&`: if attribution setup fails, the commit command must not run.
+Keep `&&` after `source`. If the attribution setup fails, the commit must not run.
+
+The model name comes from `CODEX_ASSISTED_BY_MODEL`, then from `CODEX_MODEL`. If both are empty, the hook records `codex` as the model. The agent label is always `codex` by default.
+
+Optional environment variables:
+
+- `CODEX_ASSISTED_BY_AGENT`: the agent name in `Assisted-by:`. The default is `codex`.
+- `CODEX_ASSISTED_BY_EXTRA_TOOLS`: more tool labels to add, separated by spaces or commas.
 
 ## Install for Claude Code
 
-This repository is also a Claude Code plugin. Add the repository as a local marketplace and install it:
+This repository is a Claude Code plugin. Add the repository as a local marketplace, then install the plugin:
 
 ```bash
 claude plugin marketplace add /absolute/path/to/assisted-by
 claude plugin install assisted-by@assisted-by-local
 ```
 
-The `PreToolUse` hook reads the active model from the latest assistant turn of the session transcript and records `claude` when it is unavailable. It uses `claude-code` as the default agent label. `CLAUDE_ASSISTED_BY_MODEL`, `CLAUDE_ASSISTED_BY_AGENT`, and `CLAUDE_ASSISTED_BY_EXTRA_TOOLS` provide overrides. The hook adds `--trailer` options to plain `git commit` and `git rebase --continue` calls in place, because Claude Code worktree isolation refuses commands that run `source`. Isolation also refuses `git -c`, so instead of `trailer.ifexists=addIfDifferent` the hook reads the message git will commit (`-m`, `-F <file>`, quoted heredocs, `-C <ref>`, or `HEAD` for `--amend`) and drops each `--trailer` that is already in it. It reads files and `HEAD` only when the commit is the first command of the Bash call, and adds both trailers when the message is unknown. It uses `bin/claude-bash-hook.sh` only for `gh` calls and git calls it cannot rewrite in place. Keep `source` chained with `&&` when using `bin/claude-bash-hook.sh` explicitly: if attribution setup fails, the commit command must not run.
+In the Claude Code settings, set `attribution.commit` to an empty string. If you do not, Claude Code adds its own trailer and the commit gets two.
 
-Set `attribution.commit` to an empty string in Claude Code settings so the built-in trailer does not duplicate this one.
+The `PreToolUse` hook reads the model from the last assistant turn in the session transcript. If it cannot find the model, it records `claude`. The default agent label is `claude-code`.
+
+Optional environment variables:
+
+- `CLAUDE_ASSISTED_BY_MODEL`: the model name.
+- `CLAUDE_ASSISTED_BY_AGENT`: the agent name in `Assisted-by:`. The default is `claude-code`.
+- `CLAUDE_ASSISTED_BY_EXTRA_TOOLS`: more tool labels to add, separated by spaces or commas.
+
+### How the Claude Code hook changes commands
+
+Claude Code worktree isolation refuses commands that run `source` or `git -c`. Thus the hook works differently from the other harnesses:
+
+1. For `git commit` and `git rebase --continue`, the hook adds `--trailer` options to the command.
+2. It does not use `trailer.ifexists=addIfDifferent`. It reads the message that Git will commit and removes each `--trailer` that the message already has.
+3. It reads the message from `-m`, `-F <file>`, quoted heredocs, `-C <ref>`, or `HEAD` for `--amend`.
+4. It reads files and `HEAD` only when the commit is the first command in the Bash call.
+5. If it cannot read the message, it adds both trailers.
+
+For `gh` calls, and for git calls that it cannot change, the hook uses `bin/claude-bash-hook.sh`. If you use this script directly, keep `&&` after `source`.
 
 ## Install for OpenCode
 
-Add the JSR package through the JSR npm helper in your OpenCode config directory:
+In your OpenCode config directory, add the JSR package with the JSR npm helper:
 
 ```bash
 deno run -A npm:jsr add @scarf/assisted-by --npm
@@ -103,12 +142,12 @@ For local development:
 
 Optional environment variables:
 
-- `OPENCODE_ASSISTED_BY_AGENT`: override the agent name in `Assisted-by:`. Default: `opencode`
-- `OPENCODE_ASSISTED_BY_EXTRA_TOOLS`: extra space- or comma-separated specialized tool labels to append
+- `OPENCODE_ASSISTED_BY_AGENT`: the agent name in `Assisted-by:`. The default is `opencode`.
+- `OPENCODE_ASSISTED_BY_EXTRA_TOOLS`: more tool labels to add, separated by spaces or commas.
 
 ## CLI
 
-Run directly from JSR:
+Run from JSR:
 
 ```bash
 deno run jsr:@scarf/assisted-by/cli <model-name> <agent-name> [tool ...]
@@ -128,7 +167,7 @@ deno install --global --name assisted-by jsr:@scarf/assisted-by/cli
 
 ## Development
 
-Source and package metadata are Deno/JSR-only. Package entrypoints are TypeScript files declared in `deno.json`.
+The source and the package metadata are for Deno and JSR only. `deno.json` declares the package entrypoints, which are TypeScript files.
 
 ```bash
 deno task fmt
@@ -138,22 +177,23 @@ deno task test
 deno task publish:dry-run
 ```
 
+Write docs in Simplified Technical English. See `AGENTS.md` for the rules.
+
 ## Release
 
-Push a semver tag to publish to JSR through GitHub Actions:
+Push a semver tag. GitHub Actions then publishes the package to JSR:
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The workflow uses GitHub Actions OIDC, so link the JSR package to this GitHub repository first. It validates, dry-runs, then publishes with the version from the tag.
+The workflow uses GitHub Actions OIDC. Link the JSR package to this GitHub repository first. The workflow validates the package, does a dry run, and then publishes with the version from the tag.
 
-## Notes
+## Limits
 
-- this intercepts `git commit`, `git rebase --continue`, `gh pr create`, and `gh issue create` mechanically; the model does not format or decide the trailers
-- it does not rewrite commits created by commands other than `git commit`
-- it updates PR bodies only after successful `gh pr create` calls
-- it updates issue bodies only after successful `gh issue create` calls that print the created issue URL
-- JSR's npm compatibility package is `@jsr/scarf__assisted-by`, not an npmjs `@scarf/assisted-by` publish
-- Pi loads `./extensions` by convention
+- It changes only commits that `git commit` or `git rebase --continue` makes. It does not change commits from other commands.
+- It changes a pull request body only after `gh pr create` is successful.
+- It changes an issue body only after `gh issue create` is successful and prints the URL of the new issue.
+- The JSR npm package is `@jsr/scarf__assisted-by`. There is no `@scarf/assisted-by` package on npmjs.
+- Pi loads `./extensions` by convention.

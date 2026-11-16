@@ -400,6 +400,79 @@ const inlineGitAttribution = (
   }
 }
 
+// Keep plain words bare so permission rules like `Bash(gh pr create:*)` still match.
+const shellWord = (word: string) =>
+  /^[\w@%+=:,./-]+$/.test(word) ? word : quoteForShell(word)
+
+const ghBodyOptions = new Set(["-b", "--body"])
+const ghBodyFileOptions = new Set(["-F", "--body-file"])
+const ghSkipOptions = new Set(["-w", "--web", "--dry-run"])
+
+// Find `pr create|new` or `issue create` after gh's global -R/--repo option.
+const ghCreateSubject = (words: string[]): "PR" | "Issue" | undefined => {
+  if (words[0]?.split("/").at(-1) !== "gh") return undefined
+  for (let index = 1; index < words.length; index++) {
+    const word = words[index]
+    if (word === "-R" || word === "--repo") index++
+    else if (word.startsWith("-")) continue
+    else if (word === "pr" && ["create", "new"].includes(words[index + 1])) {
+      return "PR"
+    } else if (word === "issue" && words[index + 1] === "create") {
+      return "Issue"
+    } else return undefined
+  }
+  return undefined
+}
+
+// Put the PR or issue trailer into a literal --body or --body-file, so the command stays a plain gh call.
+const inlineGhAttribution = (
+  command: string,
+  { model, agent }: { model: string; agent: string },
+  { cwd, readFile }: MessageContext,
+): InlineResult => {
+  const code = commandText(command)
+  if (
+    [...command].some((char, index) =>
+      code[index] && /[\n;&|()<>`$]/.test(char)
+    )
+  ) return undefined
+  const parsed = simpleCommandWords(command.trim())
+  if (!parsed || parsed.dynamic) return undefined
+  const { words } = parsed
+  const subject = ghCreateSubject(words)
+  if (!subject) return undefined
+  if (words.some((word) => ghSkipOptions.has(word))) return { command }
+
+  let body: string | undefined
+  let file: string | undefined
+  const kept: string[] = []
+  for (let index = 0; index < words.length; index++) {
+    const word = words[index]
+    const [name] = word.split("=", 1)
+    const inlineValue = word.includes("=") && name.startsWith("--")
+      ? word.slice(name.length + 1)
+      : undefined
+    if (ghBodyOptions.has(name)) {
+      body = inlineValue ?? words[++index]
+    } else if (ghBodyFileOptions.has(name)) {
+      file = inlineValue ?? words[++index]
+    } else kept.push(word)
+  }
+  if (file !== undefined) {
+    if (body !== undefined || file === "-" || !cwd) return undefined
+    body = readFile(resolve(cwd, file))
+  }
+  if (body === undefined) return undefined
+
+  const trailer = `<sub>${subject} opened by ${model} on ${agent}</sub>`
+  if (body.includes(trailer)) return { command }
+  const text = body.trim() ? `${body.trimEnd()}\n\n${trailer}` : trailer
+  return {
+    command: [...kept.map(shellWord), "--body", quoteForShell(text)]
+      .join(" "),
+  }
+}
+
 // Claude Code hook input carries no model, so read it from the latest assistant turn of the transcript.
 export const findTranscriptModel = (transcript: string): string => {
   for (const line of transcript.split("\n").reverse()) {
@@ -454,15 +527,19 @@ export const buildClaudePreToolUseOutput = (
   const model = modelOverride ||
     readTranscriptModel({ path: input.transcript_path, readTranscript }) ||
     "claude"
-  const inline = inlineGitAttribution(
-    command,
-    buildTrailers({ agent, model, tools }),
-    {
-      cwd: typeof input.cwd === "string" ? input.cwd : "",
-      readFile,
-      runGit,
-    },
-  )
+  const context = {
+    cwd: typeof input.cwd === "string" ? input.cwd : "",
+    readFile,
+    runGit,
+  }
+  const inline = hasGhPrCreateInvocation({ command }) ||
+      hasGhIssueCreateInvocation({ command })
+    ? inlineGhAttribution(command, { model, agent }, context)
+    : inlineGitAttribution(
+      command,
+      buildTrailers({ agent, model, tools }),
+      context,
+    )
   if (inline && "denied" in inline) {
     return {
       hookSpecificOutput: {

@@ -188,13 +188,13 @@ export const hasGitRebaseContinueInvocation = (
 export const hasGhPrCreateInvocation = (
   { command }: CommandOptions = {},
 ): boolean =>
-  /(^|[\n;&|()\s])gh(?:\s+[^\s;&|()]+)*\s+pr\s+(create|new)(\s|$)/m
+  /(^|[\n;&|()\s])(?:[^\s;&|()]*\/)?gh(?:\s+[^\s;&|()]+)*\s+pr\s+(create|new)(\s|$)/m
     .test(`${command ?? ""}`)
 
 export const hasGhIssueCreateInvocation = (
   { command }: CommandOptions = {},
 ): boolean =>
-  /(^|[\n;&|()\s])gh(?:\s+[^\s;&|()]+)*\s+issue\s+create(\s|$)/m
+  /(^|[\n;&|()\s])(?:[^\s;&|()]*\/)?gh(?:\s+[^\s;&|()]+)*\s+issue\s+create(\s|$)/m
     .test(`${command ?? ""}`)
 
 // Build a GitHub body attribution trailer.

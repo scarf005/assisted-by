@@ -811,6 +811,90 @@ Deno.test("Claude PreToolUse hook wraps attributable Bash commands", () => {
   )
 })
 
+Deno.test("Claude PreToolUse hook inlines the trailer into gh create bodies", () => {
+  const trailer = (subject: string) =>
+    `<sub>${subject} opened by claude-opus-5-5 on claude-code</sub>`
+  const run = (
+    command: string,
+    extra: { cwd?: string; files?: Record<string, string> } = {},
+  ) => {
+    const output = buildClaudePreToolUseOutput({
+      input: {
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command },
+        cwd: extra.cwd,
+      },
+      modelOverride: "claude-opus-5-5",
+      pluginRoot: "/plugin",
+      readFile: (path) => extra.files?.[path],
+    })
+    return (output?.hookSpecificOutput as {
+      updatedInput: { command: string }
+    }).updatedInput.command
+  }
+
+  assertEquals(
+    run("gh pr create --title t --body 'hello'"),
+    `gh pr create --title t --body 'hello\n\n${trailer("PR")}'`,
+  )
+  assertEquals(
+    run("/opt/homebrew/bin/gh pr create -R o/r --body-file body.md", {
+      cwd: "/w",
+      files: { "/w/body.md": "from file\n\n" },
+    }),
+    `/opt/homebrew/bin/gh pr create -R o/r --body 'from file\n\n${
+      trailer("PR")
+    }'`,
+  )
+  assertEquals(
+    run("gh issue create --title 'two words' --body x"),
+    `gh issue create --title 'two words' --body 'x\n\n${trailer("Issue")}'`,
+  )
+
+  const withTrailer = `gh pr create --body 'hi\n\n${trailer("PR")}'`
+  assertEquals(run(withTrailer), withTrailer)
+  assertEquals(
+    run("gh pr create --web --body x"),
+    "gh pr create --web --body x",
+  )
+})
+
+Deno.test("Claude PreToolUse hook falls back to the source wrapper for gh commands it cannot inline", () => {
+  for (
+    const command of [
+      "gh pr create --fill",
+      "gh pr create --body x && echo done",
+      "gh pr create --body-file -",
+    ]
+  ) {
+    const output = buildClaudePreToolUseOutput({
+      input: {
+        hook_event_name: "PreToolUse",
+        tool_name: "Bash",
+        tool_input: { command },
+        cwd: "/w",
+      },
+      modelOverride: "claude-opus-5-5",
+      pluginRoot: "/plugin",
+    })
+    assertEquals(
+      (output?.hookSpecificOutput as { updatedInput: { command: string } })
+        .updatedInput.command,
+      `CLAUDE_ASSISTED_BY_MODEL='claude-opus-5-5' source '/plugin/bin/claude-bash-hook.sh' && ${command}`,
+    )
+  }
+})
+
+Deno.test("hasGhPrCreateInvocation accepts a path-prefixed gh", () => {
+  assertEquals(
+    hasGhPrCreateInvocation({
+      command: "/opt/homebrew/bin/gh pr create --fill",
+    }),
+    true,
+  )
+})
+
 Deno.test("Claude PreToolUse hook skips unrelated and already wrapped commands", () => {
   const input = { hook_event_name: "PreToolUse", tool_name: "Bash" }
 

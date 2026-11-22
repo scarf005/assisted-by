@@ -24,6 +24,7 @@ The hook also does these steps:
 - It refuses `git commit` without a message source, because a GUI editor stops the agent. Message sources are `-m`, `-F`, `-C`, `-c`, `--fixup`, `--squash`, `--amend`, and `--no-edit`.
 - It runs commits and `git rebase --continue` with `GIT_EDITOR=:`, so no editor opens.
 - It does not add a trailer two times on `--amend`. It uses `trailer.ifexists=addIfDifferent` for this.
+- It does not add `Assisted-by:` when the message already has one for the same model. It ignores case and the agent label. It reads the message from `-m`, `-F`, `-C`, `-c`, or `HEAD` for `--amend`.
 
 The `TOOL` list does not include basic tools. The hook reads the bash commands and adds only these analysis tools:
 

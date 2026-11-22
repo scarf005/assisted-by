@@ -1162,6 +1162,19 @@ Deno.test("Claude PreToolUse hook drops --trailer already present in the -m mess
   )
 })
 
+Deno.test("Claude PreToolUse hook drops Assisted-by that only differs in the agent label", () => {
+  assertEquals(
+    hookCommand(
+      `git commit -m 'subject' -m 'Assisted-by: Claude:Claude-Sonnet-4-5 sparse'`,
+    ),
+    `GIT_EDITOR=: git commit ${coAuthoredByFlag} -m 'subject' -m 'Assisted-by: Claude:Claude-Sonnet-4-5 sparse'`,
+  )
+  assertEquals(
+    hookCommand(`git commit -m 'subject' -m 'Assisted-by: Claude:other-model'`),
+    `GIT_EDITOR=: git commit ${bothFlags} -m 'subject' -m 'Assisted-by: Claude:other-model'`,
+  )
+})
+
 Deno.test("Claude PreToolUse hook reads the amended HEAD message from the git -C directory", () => {
   const calls: { args: string[]; cwd: string }[] = []
   const runGit = (args: string[], cwd: string) => {

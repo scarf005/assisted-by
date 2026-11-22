@@ -320,12 +320,19 @@ const splitTrailer = (line: string) => {
   }
 }
 
+// The model is the text after the last ":" of the first word, in lower case.
+const assistedByModel = (value = "") =>
+  value.split(/\s+/)[0].split(":").at(-1)?.toLowerCase()
+
 const hasTrailer = (message: string, trailer: string): boolean => {
   const wanted = splitTrailer(trailer)
   const block = message.trim().split(/\n[ \t]*\n/).at(-1) ?? ""
   return block.split("\n").some((line) => {
     const found = splitTrailer(line)
-    return found?.key === wanted?.key && found?.value === wanted?.value
+    return found?.key === wanted?.key &&
+      (found?.value === wanted?.value ||
+        (wanted?.key === "assisted-by" &&
+          assistedByModel(found?.value) === assistedByModel(wanted?.value)))
   })
 }
 

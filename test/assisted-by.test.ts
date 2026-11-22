@@ -547,6 +547,85 @@ Deno.test("hook bootstrap appends trailers, preserves distinct co-authors, and a
   }
 })
 
+// Commit through the real wrapper in an isolated repo, then return the message trailers.
+const commitWithWrapper = (
+  { message, extraArgs = "" }: { message: string; extraArgs?: string },
+): string[] => {
+  const dir = mkdtempSync(repoPrefix)
+  const env = Object.fromEntries(
+    Object.entries(Deno.env.toObject()).filter(([key]) =>
+      !key.startsWith("GIT_")
+    ),
+  )
+  const git = (command: string) => {
+    const result = spawnSync("bash", ["-c", command], {
+      cwd: dir,
+      encoding: "utf8",
+      env: {
+        ...env,
+        HOME: dir,
+        GIT_CONFIG_GLOBAL: join(dir, "gitconfig"),
+        GIT_CONFIG_NOSYSTEM: "1",
+      },
+    })
+    if (result.status !== 0) throw new Error(result.stderr || command)
+    return result.stdout
+  }
+
+  try {
+    git(
+      "git init -q && git config user.name test && git config user.email test@example.com && git config commit.gpgsign false",
+    )
+    writeFileSync(join(dir, "a.txt"), "one\n")
+    writeFileSync(join(dir, "msg.txt"), message)
+    git("git add a.txt")
+    const bootstrap = createHookBootstrap({
+      hookPath,
+      assistedBy: "Assisted-by: claude-code:claude-opus-5-5",
+    })
+    git(`${bootstrap}\ngit commit -q ${extraArgs} -F msg.txt`)
+    return git("git log -1 --pretty=%B").split("\n").filter((line) =>
+      line.startsWith("Assisted-by:")
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+Deno.test("git hook skips Assisted-by when the message has the same model under another agent label", () => {
+  assertDeepEquals(
+    commitWithWrapper({
+      message: "feat: x\n\nAssisted-by: Claude:claude-opus-5-5\n",
+    }),
+    ["Assisted-by: Claude:claude-opus-5-5"],
+  )
+  assertDeepEquals(
+    commitWithWrapper({
+      message: "feat: x\n\nAssisted-by: CLAUDE:Claude-Opus-5-5 sparse\n",
+    }),
+    ["Assisted-by: CLAUDE:Claude-Opus-5-5 sparse"],
+  )
+})
+
+Deno.test("git hook keeps both Assisted-by lines when the models differ", () => {
+  assertDeepEquals(
+    commitWithWrapper({
+      message: "feat: x\n\nAssisted-by: Claude:claude-opus-4-1\n",
+    }),
+    [
+      "Assisted-by: Claude:claude-opus-4-1",
+      "Assisted-by: claude-code:claude-opus-5-5",
+    ],
+  )
+})
+
+Deno.test("git hook adds Assisted-by when the message has none", () => {
+  assertDeepEquals(
+    commitWithWrapper({ message: "feat: x\n" }),
+    ["Assisted-by: claude-code:claude-opus-5-5"],
+  )
+})
+
 Deno.test("Codex wrapper adds Codex attribution and avoids duplicate trailers", () => {
   const repo = mkdtempSync(repoPrefix)
 
